@@ -1,4 +1,8 @@
 // @ts-nocheck -- vendored as-is from fzstd, which is not written for strict mode (see UPSTREAM.md)
+/*!
+ * fzstd v0.1.1, https://github.com/101arrowz/fzstd
+ * Copyright (c) 2020 Arjun Barrett. MIT License, full text in the LICENSE file next to this one.
+ */
 // Some numerical data is initialized as -1 even when it doesn't need initialization to help the JIT infer types
 
 // aliases for shorter compressed code (most minifers don't do this)

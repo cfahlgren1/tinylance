@@ -1,12 +1,16 @@
 {
   "name": "tinylance",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Read Lance datasets anywhere JavaScript runs. Zero dependencies.",
   "license": "MIT",
   "author": "Caleb Fahlgren",
+  "homepage": "https://github.com/cfahlgren1/tinylance#readme",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/cfahlgren1/tinylance.git"
+  },
+  "bugs": {
+    "url": "https://github.com/cfahlgren1/tinylance/issues"
   },
   "keywords": [
     "lance",
@@ -43,7 +47,7 @@
     }
   },
   "scripts": {
-    "build": "tsc -p tsconfig.build.json",
+    "build": "tsc -p tsconfig.build.json && cp src/vendor/fzstd/LICENSE dist/vendor/fzstd/LICENSE",
     "pretest": "npm run build",
     "test": "node --test 'test/*.test.ts'",
     "test:browser": "node scripts/browser.ts",

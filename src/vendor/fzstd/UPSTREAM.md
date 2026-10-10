@@ -4,4 +4,5 @@
 - License: MIT (LICENSE in this directory)
 - Why vendored: browsers have no zstd decoder, and tinylance has no runtime dependencies. It is loaded
   with a dynamic import only when a dataset uses zstd (src/zstd.ts).
-- Deviations: a `// @ts-nocheck` line at the top, since upstream is not written for strict mode.
+- Deviations: a `// @ts-nocheck` line at the top, since upstream is not written for strict mode, and
+  a license comment so the notice ships in dist/.
