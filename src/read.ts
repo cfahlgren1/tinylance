@@ -20,10 +20,18 @@ export interface LanceReadOptions {
   offset?: number
   /** number of rows; defaults to the rest of the dataset */
   limit?: number
-  /** binary values larger than this come back as LazyValue handles instead of bytes */
+  /**
+   * Binary and string values stored larger than this come back as LazyValue handles, fetched only
+   * on read(). Defaults to Infinity (everything inline). Applies to values stored out of line
+   * (large binaries, images, videos); blob columns are always lazy.
+   */
   maxInlineBytes?: number
+  /** cancels the read; other reads of the same dataset are not affected */
   signal?: AbortSignal | undefined
-  /** called with each fragment's rows as soon as they are decoded */
+  /**
+   * Called with each fragment's rows as soon as they are decoded, in completion order; `offset` is
+   * the first row's position in the dataset. The full result is still collected and returned.
+   */
   onChunk?: (chunk: { offset: number; rows: Row[] }) => void
 }
 

@@ -22,6 +22,12 @@ export type TypedArray =
   | BigInt64Array
   | BigUint64Array
 
+/**
+ * A decoded value: int8–32, uint8–32 and floats are numbers; int64 and uint64 are bigints;
+ * timestamps and dates are Dates; strings are strings and binary is Uint8Array; fixed-size lists
+ * of numbers (vectors) are typed-array views, or arrays when they hold nulls; lists are arrays;
+ * structs are objects; blob columns and large values are LazyValues.
+ */
 export type Value = null | boolean | number | bigint | string | Date | TypedArray | LazyValue | Value[] | { [field: string]: Value }
 
 export type Row = { [column: string]: Value }

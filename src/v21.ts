@@ -605,6 +605,126 @@ interface Chunk {
   items: number
 }
 
+/** chunks [first, last] of a page, and the row that chunk `first` starts at */
+interface ChunkRange {
+  first: number
+  last: number
+  rowBase: number
+}
+
+/** a chunk's values and its repetition and definition levels */
+interface DecodedChunk {
+  block: Block
+  rep: Uint16Array | null
+  def: Uint16Array | null
+}
+
+/** each chunk's byte range and item range, from the metadata buffer of u16 (or u32) words */
+function parseChunks(meta: Uint8Array, largeChunk: boolean, totalItems: number): Chunk[] {
+  const dv = new DataView(meta.buffer, meta.byteOffset, meta.byteLength)
+  const wordBytes = largeChunk ? 4 : 2
+  const chunks: Chunk[] = []
+  let byte = 0
+  let item = 0
+
+  for (let w = 0; w < meta.byteLength / wordBytes; w++) {
+    const word = largeChunk ? dv.getUint32(w * 4, true) : dv.getUint16(w * 2, true)
+    const bytes = ((word >>> 4) + 1) * 8
+    const log = word & 0xf
+    const items = log === 0 ? totalItems - item : 2 ** log
+
+    chunks.push({ byte, bytes, item, items })
+    byte += bytes
+    item += items
+  }
+
+  return chunks
+}
+
+/**
+ * The chunks [first, last] that hold rows [start, end), and the row that chunk `first` starts at.
+ * Without repetition an item is a row. With it, the repetition index stores per chunk
+ * (depth + 1) u64s: [0] = rows ending in the chunk, [1] = items of a trailing partial row.
+ */
+function selectChunks(chunks: Chunk[], repIndex: Uint8Array | undefined, repIndexDepth: number, start: number, end: number): ChunkRange {
+  let first = 0
+  let last = chunks.length - 1
+
+  if (!repIndex) {
+    while (first < last && chunks[first].item + chunks[first].items <= start) first++
+
+    while (last > first && chunks[last].item >= end) last--
+
+    return { first, last, rowBase: chunks[first].item }
+  }
+
+  const stride = (repIndexDepth + 1) * 8
+  const rowStarts = [0]
+  const ends: number[] = []
+  const trailer: boolean[] = []
+
+  for (let c = 0; c < chunks.length; c++) {
+    ends.push(readUint(repIndex, c * stride, 8))
+    trailer.push(readUint(repIndex, c * stride + 8, 8) > 0)
+    rowStarts.push(rowStarts[c] + ends[c] + (trailer[c] ? 1 : 0) - (c && trailer[c - 1] ? 1 : 0))
+  }
+
+  // first: the chunk where row `start` begins; last: the chunk where row `end - 1` finishes
+  while (first < last && rowStarts[first + 1] <= start) first++
+  last = first
+
+  while (last < chunks.length - 1 && rowStarts[last + 1] < end) last++
+
+  while (last < chunks.length - 1 && trailer[last] && rowStarts[last + 1] === end) {
+    last++ // the final row spills into the next chunk(s)
+
+    if (ends[last] > 0) break
+  }
+
+  return { first, last, rowBase: rowStarts[first] }
+}
+
+/** one chunk: [level count][rep size][def size][buffer sizes] header, then rep, def and value buffers, 8-byte aligned */
+function decodeChunk(buf: Uint8Array, items: number, l: MiniBlockLayout, ctx: DecodeContext): DecodedChunk {
+  const dv = new DataView(buf.buffer, buf.byteOffset, buf.byteLength)
+  const wordBytes = l.largeChunk ? 4 : 2
+  let o = 2
+  const levelCount = dv.getUint16(0, true) || items
+  const repSize = l.rep ? dv.getUint16(o, true) : 0
+
+  if (l.rep) o += 2
+
+  const defSize = l.def ? dv.getUint16(o, true) : 0
+
+  if (l.def) o += 2
+
+  const sizes: number[] = []
+
+  for (let k = 0; k < l.numBuffers; k++) {
+    sizes.push(l.largeChunk ? dv.getUint32(o, true) : dv.getUint16(o, true))
+    o += wordBytes
+  }
+
+  o = align8(o)
+
+  const rep = l.rep ? decodeLevels(l.rep, buf.subarray(o, o + repSize), levelCount, ctx) : null
+
+  if (l.rep) o = align8(o + repSize)
+
+  const def = l.def ? decodeLevels(l.def, buf.subarray(o, o + defSize), levelCount, ctx) : null
+
+  if (l.def) o = align8(o + defSize)
+
+  const bufs = sizes.map((size) => {
+    const b = buf.subarray(o, o + size)
+    o = align8(o + size)
+
+    return b
+  })
+
+  return { block: decodeBlock(l.value, bufs, items, ctx), rep, def }
+}
+
 async function readMiniBlock(
   page: PageRef,
   l: MiniBlockLayout,
@@ -614,7 +734,7 @@ async function readMiniBlock(
   ctx: DecodeContext,
   convert: Convert,
 ): Promise<Value[]> {
-  // buffer 0: chunk metadata (u16 or u32 words), 1: chunk data, then the dictionary, then the repetition index
+  // buffer 0: chunk metadata, 1: chunk data, then the dictionary, then the repetition index
   const [metaOff, dataOff] = page.offsets
   const [metaLen, dataLen] = page.sizes
   const hasDict = !!l.dictionary
@@ -630,127 +750,25 @@ async function readMiniBlock(
   if (whole) reads.push([dataOff, dataLen])
 
   const fetched = await io.readMany(reads, ctx.signal)
-  const meta = fetched[0]
   const dictBuf = hasDict ? fetched[1] : undefined
   const repIndex = hasRepIndex ? fetched[hasDict ? 2 : 1] : undefined
-  const wholeData = whole ? fetched[fetched.length - 1] : undefined
-  const wordBytes = l.largeChunk ? 4 : 2
-  const nChunks = meta.byteLength / wordBytes
-  const mdv = new DataView(meta.buffer, meta.byteOffset, meta.byteLength)
-  const hasRep = !!l.rep
-  const totalItems = hasRep ? l.numItems : page.rows
-  const chunks: Chunk[] = []
-  let byte = 0
-  let item = 0
-
-  for (let w = 0; w < nChunks; w++) {
-    const word = l.largeChunk ? mdv.getUint32(w * 4, true) : mdv.getUint16(w * 2, true)
-    const size = ((word >>> 4) + 1) * 8
-    const log = word & 0xf
-    const items = log === 0 ? totalItems - item : 2 ** log
-
-    chunks.push({ byte, bytes: size, item, items })
-    byte += size
-    item += items
-  }
-
-  // without repetition an item is a row, so only the chunks covering [start, end) are needed
-  let first = 0
-  let last = chunks.length - 1
-  let rowBase = 0
-
-  if (!hasRep) {
-    while (first < last && chunks[first].item + chunks[first].items <= start) first++
-
-    while (last > first && chunks[last].item >= end) last--
-    rowBase = chunks[first].item
-  } else if (repIndex) {
-    // per chunk, (depth + 1) u64s: [0] = rows ending in the chunk, [1] = items of a trailing partial row
-    const stride = (l.repIndexDepth + 1) * 8
-    const rowStarts = [0]
-    const ends: number[] = []
-    const trailer: boolean[] = []
-
-    for (let c = 0; c < nChunks; c++) {
-      ends.push(readUint(repIndex, c * stride, 8))
-      trailer.push(readUint(repIndex, c * stride + 8, 8) > 0)
-      rowStarts.push(rowStarts[c] + ends[c] + (trailer[c] ? 1 : 0) - (c && trailer[c - 1] ? 1 : 0))
-    }
-
-    // first: the chunk where row `start` begins; last: the chunk where row `end - 1` finishes
-    while (first < last && rowStarts[first + 1] <= start) first++
-    last = first
-
-    while (last < nChunks - 1 && rowStarts[last + 1] < end) last++
-
-    while (last < nChunks - 1 && trailer[last] && rowStarts[last + 1] === end) {
-      last++ // the final row spills into the next chunk(s)
-
-      if (ends[last] > 0) break
-    }
-
-    rowBase = rowStarts[first]
-  }
-
+  const chunks = parseChunks(fetched[0], l.largeChunk, l.rep ? l.numItems : page.rows)
+  const { first, last, rowBase } = selectChunks(chunks, l.rep ? repIndex : undefined, l.repIndexDepth, start, end)
   const from = chunks[first].byte
   const to = chunks[last].byte + chunks[last].bytes
-  const data = wholeData ? wholeData.subarray(from, to) : (await io.readMany([[dataOff + from, to - from]], ctx.signal))[0]
+  const data = whole ? fetched[fetched.length - 1].subarray(from, to) : (await io.readMany([[dataOff + from, to - from]], ctx.signal))[0]
   const dict = l.dictionary && dictBuf ? decodeDictionary(dictBuf, l.dictionary, l.dictionarySize, ctx) : null
   const values: Value[][] = []
-  const defs: Uint16Array[] = []
   const reps: Uint16Array[] = []
+  const defs: Uint16Array[] = []
 
   for (let c = first; c <= last; c++) {
     const ch = chunks[c]
-    const buf = data.subarray(ch.byte - from, ch.byte - from + ch.bytes)
-    const dv = new DataView(buf.buffer, buf.byteOffset, buf.byteLength)
-    let o = 0
-    const numLevels = dv.getUint16(o, true)
-    o += 2
+    const { block, rep, def } = decodeChunk(data.subarray(ch.byte - from, ch.byte - from + ch.bytes), ch.items, l, ctx)
 
-    let repSize = 0
-    let defSize = 0
+    if (rep) reps.push(rep)
 
-    if (l.rep) {
-      repSize = dv.getUint16(o, true)
-      o += 2
-    }
-
-    if (l.def) {
-      defSize = dv.getUint16(o, true)
-      o += 2
-    }
-
-    const sizes: number[] = []
-
-    for (let k = 0; k < l.numBuffers; k++) {
-      sizes.push(l.largeChunk ? dv.getUint32(o, true) : dv.getUint16(o, true))
-      o += wordBytes
-    }
-
-    o = align8(o)
-
-    const levelCount = numLevels || ch.items
-
-    if (l.rep) {
-      reps.push(decodeLevels(l.rep, buf.subarray(o, o + repSize), levelCount, ctx))
-      o = align8(o + repSize)
-    }
-
-    if (l.def) {
-      defs.push(decodeLevels(l.def, buf.subarray(o, o + defSize), levelCount, ctx))
-      o = align8(o + defSize)
-    }
-
-    const bufs = sizes.map((s) => {
-      const b = buf.subarray(o, o + s)
-      o = align8(o + s)
-
-      return b
-    })
-
-    const block = decodeBlock(l.value, bufs, ch.items, ctx)
-
+    if (def) defs.push(def)
     values.push(dict ? convertDict(block, dict, convert) : convert(block, ch.items))
   }
 
