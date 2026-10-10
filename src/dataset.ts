@@ -6,7 +6,8 @@ import { all, bytes, decode, int32, msg, num, packed, str, u64 } from './proto.t
 import type { Proto } from './proto.ts'
 import { abortable, cachedSource, memo } from './source.ts'
 import type { CachedSource, Source } from './source.ts'
-import type { DecodeContext, Decompressors } from './types.ts'
+import type { DecodeContext, Decompressors, Zstd } from './types.ts'
+import { loadZstd } from './zstd.ts'
 
 const utf8 = new TextDecoder()
 
@@ -67,6 +68,8 @@ export interface DatasetState {
   files: Map<string, Promise<FileMeta>>
   /** by deletion file path */
   deletions: Map<string, Promise<Uint32Array>>
+  /** the bundled zstd decoder, loaded the first time this dataset needs it */
+  zstdLoad: Map<string, Promise<Zstd>>
 }
 
 const states = new WeakMap<LanceDataset, DatasetState>()
@@ -87,7 +90,7 @@ export async function openDataset(source: Source, options: LanceOpenOptions = {}
   const { path, size } = await findManifest(cached, options.version, options.signal)
   const ds = await readManifest(cached, path, size, options.signal)
 
-  states.set(ds, { source: cached, decompressors: options.decompressors ?? {}, files: new Map(), deletions: new Map() })
+  states.set(ds, { source: cached, decompressors: options.decompressors ?? {}, files: new Map(), deletions: new Map(), zstdLoad: new Map() })
 
   return ds
 }
@@ -259,17 +262,25 @@ export function fileMeta(ds: LanceDataset, file: LanceDataFile, ctx: DecodeConte
   )
 }
 
+/** the dataset's zstd decoder: the one passed to lanceOpen, or the bundled one, loaded once */
+export function zstdFor(ds: LanceDataset): Promise<Zstd> {
+  const state = stateOf(ds)
+  const given = state.decompressors.zstd
+
+  return given ? Promise.resolve(given) : memo(state.zstdLoad, 'zstd', loadZstd)
+}
+
 /** sorted physical row offsets deleted from a fragment (empty if none) */
 export function deletedRows(ds: LanceDataset, frag: LanceFragment, ctx: DecodeContext): Promise<Uint32Array> {
   const d = frag.deletion
 
   if (!d) return Promise.resolve(new Uint32Array(0))
 
-  const { source, deletions, decompressors } = stateOf(ds)
+  const { source, deletions } = stateOf(ds)
   const path = `_deletions/${frag.id}-${d.readVersion}-${d.id}.${d.type === 'bitmap' ? 'bin' : 'arrow'}`
 
   return abortable(
-    memo(deletions, path, async () => parseDeletionFile(await source.read(path, 0, await source.size(path)), d.type, decompressors.zstd)),
+    memo(deletions, path, async () => parseDeletionFile(await source.read(path, 0, await source.size(path)), d.type, () => zstdFor(ds))),
     ctx.signal,
   )
 }

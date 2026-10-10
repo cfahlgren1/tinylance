@@ -1,10 +1,10 @@
 // Deletion files: an Arrow IPC file with one uint32 column of deleted row offsets,
 // or a serialized 32-bit Roaring bitmap.
-import { corrupt } from './errors.ts'
+import { corrupt, unsupported } from './errors.ts'
 import type { Zstd } from './types.ts'
 
-export function parseDeletionFile(bytes: Uint8Array, type: 'arrow' | 'bitmap', zstd: Zstd | undefined): Uint32Array {
-  return (type === 'bitmap' ? roaring(bytes) : arrowUint32Column(bytes, zstd)).sort()
+export async function parseDeletionFile(bytes: Uint8Array, type: 'arrow' | 'bitmap', zstd: () => Promise<Zstd>): Promise<Uint32Array> {
+  return (type === 'bitmap' ? roaring(bytes) : await arrowUint32Column(bytes, zstd)).sort()
 }
 
 // ---- a minimal flatbuffer reader, enough for an Arrow IPC Message / RecordBatch ----
@@ -52,7 +52,7 @@ function flatTable(b: Uint8Array, pos: number): FlatTable {
 const MESSAGE_RECORD_BATCH = 3
 
 /** the values of the first column of every record batch in an Arrow IPC file or stream, as uint32 */
-export function arrowUint32Column(bytes: Uint8Array, zstd: Zstd | undefined): Uint32Array {
+export async function arrowUint32Column(bytes: Uint8Array, zstd: () => Promise<Zstd>): Promise<Uint32Array> {
   const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
   const out: number[] = []
   let o = bytes[0] === 0x41 && bytes[1] === 0x52 ? 8 : 0 // "ARROW1\0\0"
@@ -89,9 +89,9 @@ export function arrowUint32Column(bytes: Uint8Array, zstd: Zstd | undefined): Ui
         // compressed IPC buffers: i64 uncompressed length (-1 = stored raw), then the frame
         const raw = new DataView(body.buffer, body.byteOffset, 8).getBigInt64(0, true) === -1n
 
-        if (!raw && (codec.u8(0) !== 1 || !zstd)) throw new Error('this deletion file is zstd-compressed: pass decompressors: { zstd } to lanceOpen')
+        if (!raw && codec.u8(0) !== 1) unsupported('LZ4-compressed deletion files')
 
-        body = raw || !zstd ? body.subarray(8) : zstd(body.subarray(8))
+        body = raw ? body.subarray(8) : (await zstd())(body.subarray(8))
       }
 
       const vals = new DataView(body.buffer, body.byteOffset, n * 4)

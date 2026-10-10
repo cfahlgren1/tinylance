@@ -1004,3 +1004,46 @@ function maxVisibleDefOf(ls: Layer[]): number {
 
   return level
 }
+
+/** whether decoding an encoding needs zstd, so the decoder can be loaded before decoding starts */
+function usesZstd(e: Enc21 | undefined): boolean {
+  if (!e) return false
+
+  switch (e.kind) {
+    case 'flat':
+    case 'bitpack':
+      return e.compression === 'zstd'
+    case 'variable':
+      return e.compression === 'zstd' || usesZstd(e.offsets)
+    case 'general':
+      return e.scheme === 'zstd' || usesZstd(e.values)
+    case 'ool':
+    case 'fsst':
+    case 'bss':
+    case 'fsl':
+    case 'packedstruct':
+      return usesZstd(e.values)
+    case 'dict':
+      return usesZstd(e.indices) || usesZstd(e.items)
+    case 'rle':
+      return usesZstd(e.values) || usesZstd(e.lengths)
+    case 'constant':
+    case 'unsupported':
+      return false
+  }
+}
+
+export function layoutUsesZstd(l: Layout): boolean {
+  switch (l.kind) {
+    case 'miniblock':
+      return usesZstd(l.value) || usesZstd(l.rep) || usesZstd(l.def) || usesZstd(l.dictionary)
+    case 'constant':
+      return usesZstd(l.rep) || usesZstd(l.def)
+    case 'fullzip':
+      return usesZstd(l.value)
+    case 'blob':
+      return layoutUsesZstd(l.inner)
+    case 'unsupported':
+      return false
+  }
+}

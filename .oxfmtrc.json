@@ -7,6 +7,7 @@
     "**/package-lock.json",
     "dist",
     "test/fixtures",
-    "tools/oxlint/anti-slop"
+    "tools/oxlint/anti-slop",
+    "src/vendor"
   ]
 }

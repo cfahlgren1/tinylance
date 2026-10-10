@@ -2,7 +2,7 @@
 import { corrupt } from './errors.ts'
 import { toNumbers } from './codecs.ts'
 import { converter } from './convert.ts'
-import { deletedRows, fileMeta, stateOf } from './dataset.ts'
+import { deletedRows, fileMeta, stateOf, zstdFor } from './dataset.ts'
 import type { LanceDataFile, LanceDataset, LanceField, LanceFragment } from './dataset.ts'
 import type { FileMeta, Page } from './file.ts'
 import { STRUCT_NULL } from './repdef.ts'
@@ -216,6 +216,9 @@ async function readColumn(ds: LanceDataset, meta: FileMeta, column: number, s: n
   const col = meta.columns[column]
   const io = pageIO(ds, meta.path)
   const parts: Promise<Value[]>[] = []
+
+  // browsers have no zstd built in: load the bundled decoder before decoding pages that need it
+  if (!ctx.zstd && col.pages.some((p) => p.zstd && p.rowStart < e && p.rowStart + p.rows > s)) ctx.zstd = await zstdFor(ds)
 
   for (const page of col.pages) {
     const ps = page.rowStart

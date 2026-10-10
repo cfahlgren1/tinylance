@@ -33,18 +33,23 @@ function serialize(v: Value): string {
   })
 }
 
-// the browser entry plus fzstd, the way an app reading zstd columns or deletion files would ship it
+// the browser entry split into chunks the way an app bundler ships it, so the zstd decoder and
+// bucket sources load on demand
 const { outputFiles } = await build({
-  stdin: {
-    contents: "export * from './src/index.ts'; export { decompress as zstd } from 'fzstd'",
-    resolveDir: new URL('..', import.meta.url).pathname,
-    loader: 'ts',
-  },
+  entryPoints: { tinylance: new URL('../src/index.ts', import.meta.url).pathname },
   bundle: true,
+  splitting: true,
+  outdir: '/chunks',
   format: 'esm',
   platform: 'browser',
   write: false,
 })
+
+const chunks = new Map(outputFiles.map((f) => [f.path.slice(f.path.lastIndexOf('/') + 1), f.text]))
+
+const zstdChunk = [...chunks].find(([, text]) => text.includes('ZstdErrorCode'))?.[0]
+
+assert.ok(zstdChunk, 'the zstd decoder should be its own chunk')
 
 const hub = await startHub()
 
@@ -53,7 +58,15 @@ const browser = await chromium.launch()
 try {
   const page = await browser.newPage()
 
-  await page.route('**/tinylance.js', (route) => route.fulfill({ body: outputFiles[0].text, contentType: 'text/javascript' }))
+  const loaded: string[] = []
+
+  await page.route('**/chunks/*.js', (route) => {
+    const name = route.request().url().split('/').pop() ?? ''
+
+    loaded.push(name)
+
+    return route.fulfill({ body: chunks.get(name) ?? '', contentType: 'text/javascript' })
+  })
   await page.goto(`${hub.endpoint}/`)
 
   for (const name of FIXTURES) {
@@ -62,9 +75,9 @@ try {
 
     const browserRows = await page.evaluate(
       async ({ url, endpoint, serializer }) => {
-        const tl = await import(`${endpoint}/tinylance.js`)
+        const tl = await import(`${endpoint}/chunks/tinylance.js`)
         const serialize = new Function(`return ${serializer}`)()
-        const ds = await tl.lanceOpen(tl.hfSource(url, { endpoint }), { decompressors: { zstd: tl.zstd } })
+        const ds = await tl.lanceOpen(tl.hfSource(url, { endpoint }))
 
         return serialize(await tl.lanceRead(ds, { offset: 7, limit: 20 }))
       },
@@ -72,8 +85,14 @@ try {
     )
 
     assert.equal(browserRows, serialize(nodeRows), `${name} differs between Chromium and Node`)
+
+    // the decoder loads only once a dataset needs it (zstd columns, compressed deletion files)
+    if (name === 'scalars-v2.0') assert.ok(!loaded.includes(zstdChunk), 'zstd loaded for a dataset without zstd')
+
     console.log(`ok ${name}`)
   }
+
+  assert.ok(loaded.includes(zstdChunk), 'zstd was never loaded')
 } finally {
   await browser.close()
   await hub.close()

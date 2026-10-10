@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
 import { join } from 'node:path'
 import { test } from 'node:test'
+import { lanceOpen as browserOpen, lanceRead as browserRead } from '../src/index.ts'
 import { fileSource, lanceOpen, lanceRead, readRows } from '../src/node.ts'
 import type { LazyValue, Source, Value } from '../src/node.ts'
 import { expectedRows, FIXTURES, normalizeRows } from './helpers.ts'
@@ -166,4 +167,16 @@ test('a failed request is retried by the next read instead of being cached', asy
 
   await assert.rejects(lanceRead(ds), /temporary failure/)
   assert.equal((await lanceRead(ds)).length, ds.numRows)
+})
+
+test('without a built-in zstd, the bundled decoder loads itself for zstd columns and deletion files', async () => {
+  for (const [name, scenario] of [
+    ['zstd-v2.2.lance', 'zstd'],
+    ['deletions-v2.1.lance', 'deletions'],
+  ]) {
+    // the browser entry has no node:zlib, like a browser or Worker
+    const ds = await browserOpen(fileSource(fixture(name)))
+
+    assert.deepEqual(normalizeRows(await browserRead(ds, { limit: 50 })), expectedRows(scenario).slice(0, 50))
+  }
 })

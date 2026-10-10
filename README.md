@@ -38,11 +38,11 @@ Checked against pylance on the 176 Lance tables found on the Hugging Face Hub in
 ## Supports
 
 - Lance file formats 2.0, 2.1 and 2.2, with deletions and schema evolution
-- Every encoding pylance writes by default, including FSST, RLE, dictionary, bitpacking, LZ4 and zstd\*
+- Every encoding pylance writes by default, including FSST, RLE, dictionary, bitpacking, LZ4 and zstd
 - Numbers, strings, binary, timestamps, lists, structs and fixed-size lists (vectors come back as typed arrays)
 - Blob columns, as lazy values
 
-\* zstd is built into Node ≥ 22.15. In browsers, pass one in: `lanceOpen(url, { decompressors: { zstd } })`, for example `decompress` from [fzstd](https://github.com/101arrowz/fzstd). Datasets with deleted rows need it too.
+zstd uses Node's built-in decoder. Browsers and Workers have none, so tinylance loads a bundled one ([fzstd](https://github.com/101arrowz/fzstd), 3.7 KB) the first time a dataset needs it.
 
 **Not yet:** blob v2 columns (Lance 2.2), vector and full-text search, filters, writing.
 

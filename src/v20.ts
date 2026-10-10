@@ -344,3 +344,33 @@ async function decodePackedStruct(enc: PackedStructEnc, s: number, e: number, bu
 
   return { packed: children }
 }
+
+/** whether decoding an encoding needs zstd, so the decoder can be loaded before decoding starts */
+export function arrayEncodingUsesZstd(e: Enc20): boolean {
+  switch (e.kind) {
+    case 'flat':
+      return e.compression === 'zstd'
+    case 'nullable':
+      return arrayEncodingUsesZstd(e.values) || (!!e.validity && arrayEncodingUsesZstd(e.validity))
+    case 'fsl':
+      return arrayEncodingUsesZstd(e.items)
+    case 'list':
+      return arrayEncodingUsesZstd(e.offsets)
+    case 'binary':
+      return arrayEncodingUsesZstd(e.indices) || arrayEncodingUsesZstd(e.bytes)
+    case 'dict':
+      return arrayEncodingUsesZstd(e.indices) || arrayEncodingUsesZstd(e.items)
+    case 'fsst':
+      return arrayEncodingUsesZstd(e.binary)
+    case 'fsb':
+      return arrayEncodingUsesZstd(e.bytes)
+    case 'packedstruct':
+      return e.inner.some(arrayEncodingUsesZstd)
+    case 'allnull':
+    case 'bitpacked':
+    case 'fastlanes':
+    case 'constant':
+    case 'unsupported':
+      return false
+  }
+}

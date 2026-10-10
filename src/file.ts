@@ -3,9 +3,9 @@ import { corrupt, unsupported } from './errors.ts'
 import { decode, msg, num, packed, str, all, bytes } from './proto.ts'
 import type { Proto } from './proto.ts'
 import type { CachedSource } from './source.ts'
-import { parseArrayEncoding } from './v20.ts'
+import { arrayEncodingUsesZstd, parseArrayEncoding } from './v20.ts'
 import type { Enc20 } from './v20.ts'
-import { parseLayout } from './v21.ts'
+import { layoutUsesZstd, parseLayout } from './v21.ts'
 import type { Layout } from './v21.ts'
 
 const utf8 = new TextDecoder()
@@ -18,6 +18,8 @@ export interface Page {
   rows: number
   rowStart: number
   encoding: PageEncoding
+  /** decoding needs zstd */
+  zstd: boolean
 }
 
 export interface Column {
@@ -78,7 +80,9 @@ export async function readFileMetadata(source: CachedSource, path: string, size:
 
     const pages = all(cm, 2).map((raw): Page => {
       const p = decode(raw)
-      const page: Page = { offsets: packed(p, 1), sizes: packed(p, 2), rows: num(p, 3), rowStart, encoding: pageEncoding(msg(p, 4), v21) }
+      const encoding = pageEncoding(msg(p, 4), v21)
+      const zstd = encoding.v === 21 ? layoutUsesZstd(encoding.layout) : encoding.v === 20 && arrayEncodingUsesZstd(encoding.enc)
+      const page: Page = { offsets: packed(p, 1), sizes: packed(p, 2), rows: num(p, 3), rowStart, encoding, zstd }
       rowStart += page.rows
 
       return page
