@@ -1,5 +1,6 @@
 // Logical types: turn decoded blocks into JS values. Lance stores Arrow types as strings in the
 // schema, e.g. "int64", "string", "fixed_size_list:float:768", "timestamp:us:UTC", "date32:day".
+import { corrupt } from './errors.ts'
 import { asBytes, toNumbers, words } from './codecs.ts'
 import type { Block, Convert, TypedArray, Value, Words } from './types.ts'
 
@@ -93,7 +94,7 @@ function fixedWords(block: Block, count: number): Words {
 
   const c = block.constant
 
-  if (!c) throw new Error('block has no values')
+  if (!c) corrupt('values')
 
   return words(c.slice(), (c.length * 8) / count, count)
 }
@@ -159,7 +160,7 @@ function leafConverter(type: string): Convert {
 
       const { offsets, bytes } = block
 
-      if (!offsets || !bytes) throw new Error(`${type} column has no offsets`)
+      if (!offsets || !bytes) corrupt(type)
 
       const out = new Array<Value>(n)
 
@@ -178,7 +179,7 @@ function leafConverter(type: string): Convert {
     return (block, n) => {
       if (block.constant) return Array.from({ length: n }, () => block.constant?.slice() ?? null)
 
-      if (!block.fixed) throw new Error(`${type} column has no values`)
+      if (!block.fixed) corrupt(type)
 
       const bytes = asBytes(block.fixed)
 
@@ -195,7 +196,7 @@ function leafConverter(type: string): Convert {
       return new Array<Value>(n).fill(conv ? conv(v) : v)
     }
 
-    if (!block.fixed) throw new Error(`${type} column has no values`)
+    if (!block.fixed) corrupt(type)
 
     const typed = numeric(type, block.fixed)
     const out = new Array<Value>(n)

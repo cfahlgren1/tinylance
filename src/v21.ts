@@ -1,5 +1,6 @@
 // Lance file format 2.1 / 2.2 pages: structural layouts (mini-block, full-zip, constant, blob)
 // over compressive encodings. Spec: protos/encodings_v2_1.proto in lance-format/lance.
+import { corrupt, unsupported } from './errors.ts'
 import {
   align8,
   asBytes,
@@ -51,7 +52,7 @@ const SCHEMES = new Map<number, Compression>([
 function scheme(m: Proto | undefined): Compression {
   const s = m ? SCHEMES.get(num(m, 1)) : undefined
 
-  if (!s) throw new Error(`unsupported compression scheme ${m ? num(m, 1) : 'none'}`)
+  if (!s) unsupported(`compression scheme ${m ? num(m, 1) : 'none'}`)
 
   return s
 }
@@ -63,7 +64,7 @@ function bufferCompression(m: Proto, k: number): Compression | undefined {
 function child(m: Proto, k: number): Enc21 {
   const b = bytes(m, k)
 
-  if (!b) throw new Error(`Lance 2.1 encoding is missing field ${k}`)
+  if (!b) corrupt('encoding')
 
   return parseEncoding(b)
 }
@@ -73,7 +74,7 @@ export function parseEncoding(raw: Uint8Array): Enc21 {
   const tag = oneofTag(e)
   const m = msg(e, tag)
 
-  if (!m) throw new Error(`Lance 2.1 encoding ${tag} is empty`)
+  if (!m) corrupt('encoding')
 
   switch (tag) {
     case 1:
@@ -89,7 +90,7 @@ export function parseEncoding(raw: Uint8Array): Enc21 {
     case 6: {
       const table = bytes(m, 1)
 
-      if (!table) throw new Error('FSST encoding has no symbol table')
+      if (!table) corrupt('fsst')
 
       return { kind: 'fsst', table: fsstTable(table), values: child(m, 2) }
     }
@@ -123,16 +124,12 @@ function outBits(e: Enc21): number {
     case 'general':
       return outBits(e.values)
     default:
-      throw new Error(`no fixed width for ${e.kind}`)
+      return corrupt(e.kind)
   }
 }
 
 interface Cursor {
   i: number
-}
-
-function unsupported(e: Enc21): Error {
-  return new Error(`unsupported Lance 2.1 encoding "${e.kind === 'unsupported' ? e.name : e.kind}"`)
 }
 
 /**
@@ -177,7 +174,7 @@ function decodeBlock(e: Enc21, bufs: Uint8Array[], n: number, ctx: DecodeContext
 
     case 'ool': {
       // one bit width for every 1024-value block; the last partial block is either packed (padded) or raw
-      if (e.values.kind !== 'flat') throw new Error(`out-of-line bitpacking over ${e.values.kind}`)
+      if (e.values.kind !== 'flat') unsupported(`out-of-line bitpacking over ${e.values.kind}`)
 
       let packedBytes = bufs[cursor.i++]
 
@@ -217,7 +214,7 @@ function decodeBlock(e: Enc21, bufs: Uint8Array[], n: number, ctx: DecodeContext
     case 'fsst': {
       const inner = pre ?? decodeBlock(e.values, bufs, n, ctx, cursor)
 
-      if (!inner.offsets || !inner.bytes) throw new Error('FSST block has no strings')
+      if (!inner.offsets || !inner.bytes) corrupt('fsst')
 
       return fsstDecodeAll(inner.offsets, inner.bytes, n, e.table)
     }
@@ -254,7 +251,7 @@ function decodeBlock(e: Enc21, bufs: Uint8Array[], n: number, ctx: DecodeContext
       const values = decodeBlock(e.values, [vb], (vb.byteLength * 8) / vbits, ctx).fixed
       const lengths = decodeBlock(e.lengths, [lb], (lb.byteLength * 8) / outBits(e.lengths), ctx).fixed
 
-      if (!values || !lengths) throw new Error('RLE block has no values')
+      if (!values || !lengths) corrupt('rle')
 
       return { bits: vbits, fixed: rle(values, lengths, n) }
     }
@@ -264,7 +261,7 @@ function decodeBlock(e: Enc21, bufs: Uint8Array[], n: number, ctx: DecodeContext
       const valid = e.validity ? unpackBits(bufs[cursor.i++], n * e.dim) : undefined
       const inner = decodeBlock(e.values, bufs, n * e.dim, ctx, cursor)
 
-      if (valid && inner.itemValid) throw new Error('nested fixed-size lists with nulls at several levels are not supported')
+      if (valid && inner.itemValid) unsupported('nested fixed-size lists with nulls at several levels')
 
       const block: Block = { ...inner, dim: e.dim * (inner.dim ?? 1) }
 
@@ -277,7 +274,7 @@ function decodeBlock(e: Enc21, bufs: Uint8Array[], n: number, ctx: DecodeContext
       // each row stores its fixed-width children back to back
       const inner = decodeBlock(e.values, bufs, n, ctx, cursor)
 
-      if (!inner.fixed) throw new Error('packed struct block has no bytes')
+      if (!inner.fixed) corrupt('packed struct')
 
       const b = asBytes(inner.fixed)
       const widths = e.bits.map((x) => x / 8)
@@ -302,11 +299,11 @@ function decodeBlock(e: Enc21, bufs: Uint8Array[], n: number, ctx: DecodeContext
       return e.value ? { constant: e.value } : { allNull: true }
     case 'dict':
     case 'unsupported':
-      throw unsupported(e)
+      return unsupported(`the Lance 2.1 encoding ${e.kind === 'unsupported' ? e.name : e.kind}`)
     default: {
-      const never: never = e
+      const unknownKind: never = e
 
-      throw new Error(`unknown Lance 2.1 encoding ${JSON.stringify(never)}`)
+      return corrupt(`encoding ${String(unknownKind)}`)
     }
   }
 }
@@ -395,7 +392,7 @@ function layers(m: Proto, k: number): Layer[] {
   for (const v of packed(m, k)) {
     const layer = LAYERS.get(v)
 
-    if (!layer) throw new Error(`unknown repetition/definition layer ${v}`)
+    if (!layer) corrupt('layer')
     out.push(layer)
   }
 
@@ -488,13 +485,13 @@ export function readPage21(page: PageRef, layout: Layout, start: number, end: nu
       // large binaries stored out of line: the page holds (position, size) descriptors
       if (layout.inner.kind === 'miniblock') return readMiniBlock(page, layout.inner, start, end, io, ctx, (block, n) => blobValues(block, n, io))
 
-      throw new Error(`unsupported blob layout over ${layout.inner.kind}`)
+      return unsupported(`blob layouts over ${layout.inner.kind}`)
     case 'unsupported':
-      throw new Error(`unsupported page layout "${layout.name}"`)
+      return unsupported(`the ${layout.name} page layout`)
     default: {
-      const never: never = layout
+      const unknownKind: never = layout
 
-      throw new Error(`unknown page layout ${JSON.stringify(never)}`)
+      return corrupt(`layout ${String(unknownKind)}`)
     }
   }
 }
@@ -753,7 +750,7 @@ function convertDict(block: Block, dict: Block, convert: Convert): Value[] {
   const items = convert(dict, size)
   const idx = block.fixed
 
-  if (!idx) throw new Error('dictionary block has no indices')
+  if (!idx) corrupt('dictionary')
 
   const out = new Array<Value>(idx.length)
 
@@ -919,7 +916,7 @@ function readFullZipSpan(l: FullZipLayout, data: Uint8Array, ctx: DecodeContext,
 export function blobValues(block: Block, n: number, io: PageIO): Value[] {
   const [pos, size] = block.packed ?? []
 
-  if (!pos || !size) throw new Error('blob page has no descriptors')
+  if (!pos || !size) corrupt('blob')
 
   const out = new Array<Value>(n)
 
@@ -965,7 +962,7 @@ async function readFullZipLazy(
         const [buf] = await io.readMany([[dataOff + a, b - a]], signal)
         const [value] = readFullZipSpan(l, buf, ctx, bytesOnly)
 
-        if (!(value instanceof Uint8Array)) throw new Error('lazy value is null')
+        if (!(value instanceof Uint8Array)) corrupt('lazy value')
 
         return value
       },
@@ -990,7 +987,7 @@ async function readFullZipLazy(
 const bytesOnly: Convert = (block, n) => {
   const { offsets, bytes: data } = block
 
-  if (!offsets || !data) throw new Error('lazy value has no bytes')
+  if (!offsets || !data) corrupt('lazy value')
 
   return Array.from({ length: n }, (_, i) => data.subarray(Number(offsets[i]), Number(offsets[i + 1])))
 }

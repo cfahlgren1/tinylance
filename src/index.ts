@@ -1,10 +1,9 @@
 // tinylance: read Lance datasets anywhere JavaScript runs.
-import { fromUri } from './buckets.ts'
 import { openDataset } from './dataset.ts'
 import type { LanceDataset, LanceOpenOptions } from './dataset.ts'
 import { lanceRead } from './read.ts'
 import type { LanceReadOptions } from './read.ts'
-import { isUri } from './source.ts'
+import { fromUri, isUri } from './source.ts'
 import type { Source } from './source.ts'
 import type { Row } from './types.ts'
 
@@ -12,8 +11,8 @@ import type { Row } from './types.ts'
 export type SourceLike = string | Source
 
 /** Open a dataset: finds the latest (or requested) version and reads its manifest, usually 2 requests. */
-export function lanceOpen(source: SourceLike, options: LanceOpenOptions = {}): Promise<LanceDataset> {
-  return openDataset(isUri(source) ? fromUri(source) : source, options)
+export async function lanceOpen(source: SourceLike, options: LanceOpenOptions = {}): Promise<LanceDataset> {
+  return openDataset(isUri(source) ? await fromUri(source) : source, options)
 }
 
 /** Open and read in one call. Prefer lanceOpen + lanceRead when reading more than once. */
@@ -23,17 +22,9 @@ export async function readRows(source: SourceLike, options: LanceReadOptions & L
 
 export { lanceRead }
 
-export { fromUri, gcsSource, s3Source } from './buckets.ts'
-
-export type { GcsSourceOptions, S3SourceOptions, Signer } from './buckets.ts'
-
 export type { LanceDataFile, LanceDataset, LanceField, LanceFragment, LanceOpenOptions } from './dataset.ts'
 
 export type { LanceReadOptions } from './read.ts'
-
-export { sigv4 } from './sigv4.ts'
-
-export type { AwsCredentials } from './sigv4.ts'
 
 export { hfSource, httpSource } from './source.ts'
 

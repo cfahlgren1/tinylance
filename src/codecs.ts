@@ -1,5 +1,6 @@
 // Low-level codecs shared by the 2.0 and 2.1 decoders: bytes in, typed arrays out,
 // with no BigInt arithmetic in hot loops.
+import { corrupt, unsupported } from './errors.ts'
 import type { DecodeContext, Words } from './types.ts'
 
 /** View `n` values of `bits` width, copying into an aligned buffer only when the input is misaligned or short. */
@@ -22,7 +23,7 @@ export function words(buf: Uint8Array, bits: number, n: number = (buf.byteLength
 
   if (bits === 64) return new BigUint64Array(buffer, byteOffset, n)
 
-  throw new Error(`unsupported word width ${bits}`)
+  return corrupt(`word width ${bits}`)
 }
 
 export function typedFor(bits: number, n: number): Words {
@@ -34,7 +35,7 @@ export function typedFor(bits: number, n: number): Words {
 
   if (bits === 64) return new BigUint64Array(n)
 
-  throw new Error(`unsupported word width ${bits}`)
+  return corrupt(`word width ${bits}`)
 }
 
 /** a new zeroed array of the same kind as `like` */
@@ -86,7 +87,7 @@ export function fastlanesUnpack(packed: Uint8Array, t: number, w: number, out: W
   const lanes = 1024 / t
   const src = words(packed, t, lanes * w)
 
-  if (src instanceof BigUint64Array) throw new Error('fastlanes: 64-bit words need a 64-bit output')
+  if (src instanceof BigUint64Array) corrupt('fastlanes width')
 
   const mask = w === 32 ? 0xffffffff : (1 << w) - 1
 
@@ -257,7 +258,7 @@ export function decompress(scheme: Compression, input: Uint8Array, ctx: DecodeCo
 export function compressionName(name: string): Compression {
   if (name === 'lz4' || name === 'zstd') return name
 
-  throw new Error(`unsupported compression "${name}"`)
+  return unsupported(`${name} compression`)
 }
 
 export interface FsstTable {

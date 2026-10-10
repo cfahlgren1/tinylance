@@ -1,5 +1,6 @@
 // Deletion files: an Arrow IPC file with one uint32 column of deleted row offsets,
 // or a serialized 32-bit Roaring bitmap.
+import { corrupt } from './errors.ts'
 import type { Zstd } from './types.ts'
 
 export function parseDeletionFile(bytes: Uint8Array, type: 'arrow' | 'bitmap', zstd: Zstd | undefined): Uint32Array {
@@ -123,7 +124,7 @@ export function roaring(bytes: Uint8Array): Uint32Array {
     size = dv.getUint32(4, true)
     o = 8
   } else {
-    throw new Error('not a roaring bitmap')
+    corrupt('deletion bitmap')
   }
 
   const keys: number[] = []

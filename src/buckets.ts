@@ -1,5 +1,5 @@
-// Object stores: S3 (and S3-compatible stores) and Google Cloud Storage, plus URI resolution.
-import { hfSource, httpSource } from './source.ts'
+// Object stores: S3 (and S3-compatible stores) and Google Cloud Storage.
+import { httpSource } from './source.ts'
 import type { Fetch, Source, SourceEntry } from './source.ts'
 
 /** Signs a request, e.g. with `sigv4(credentials)`. Returns the init to send. */
@@ -128,19 +128,4 @@ export function gcsSource(options: GcsSourceOptions): Source {
       return out
     },
   }
-}
-
-/** A source for a dataset URI: hf://, s3://, gs://, http(s)://. */
-export function fromUri(uri: string): Source {
-  const bucket = /^(s3|gs):\/\/([^/]+)\/?(.*)$/.exec(uri)
-
-  if (bucket?.[1] === 's3') return s3Source({ bucket: bucket[2], prefix: bucket[3] })
-
-  if (bucket) return gcsSource({ bucket: bucket[2], prefix: bucket[3] })
-
-  if (uri.startsWith('hf://')) return hfSource(uri)
-
-  if (/^https?:\/\//.test(uri)) return httpSource(uri)
-
-  throw new Error(`unsupported dataset URI "${uri}" (use hf://, s3://, gs:// or https://, or pass a source)`)
 }

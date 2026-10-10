@@ -1,5 +1,6 @@
 // Lance file format 2.0 pages ("ArrayEncoding" trees, protos/encodings_v2_0.proto).
 // Every encoding here can be sliced by row, so only the bytes for the requested rows are fetched.
+import { corrupt, unsupported } from './errors.ts'
 import { asBytes, compressionName, decompress, fastlanesUnpack, fsstDecodeAll, fsstTable, typedFor, unpackBits, unpackPlain, words } from './codecs.ts'
 import type { Compression, FsstTable } from './codecs.ts'
 import { all, bytes, decode, msg, num, oneofTag, str } from './proto.ts'
@@ -34,7 +35,7 @@ export type BufferReader = (ref: BufferRef, from: number, to: number, signal?: A
 function required(m: Proto, k: number): Uint8Array {
   const b = bytes(m, k)
 
-  if (!b) throw new Error(`Lance 2.0 encoding is missing field ${k}`)
+  if (!b) corrupt('encoding')
 
   return b
 }
@@ -42,7 +43,7 @@ function required(m: Proto, k: number): Uint8Array {
 function bufferRef(m: Proto, k: number): BufferRef {
   const b = msg(m, k)
 
-  if (!b) throw new Error(`Lance 2.0 encoding is missing buffer field ${k}`)
+  if (!b) corrupt('encoding')
 
   return { index: num(b, 1), type: num(b, 2) }
 }
@@ -175,7 +176,7 @@ export async function decode20(enc: Enc20, s: number, e: number, buf: BufferRead
     case 'fsst': {
       const inner = await decode20(enc.binary, s, e, buf, ctx)
 
-      if (!inner.offsets || !inner.bytes) throw new Error('FSST page has no strings')
+      if (!inner.offsets || !inner.bytes) corrupt('fsst')
 
       const block: Block = fsstDecodeAll(inner.offsets, inner.bytes, n, enc.table)
 
@@ -195,7 +196,7 @@ export async function decode20(enc: Enc20, s: number, e: number, buf: BufferRead
 
       const [idx, dict] = await Promise.all([decode20(enc.indices, s, e, buf, ctx), items])
 
-      if (!idx.fixed) throw new Error('dictionary page has no indices')
+      if (!idx.fixed) corrupt('dictionary')
 
       return { dictIndices: idx.fixed, items: dict }
     }
@@ -203,7 +204,7 @@ export async function decode20(enc: Enc20, s: number, e: number, buf: BufferRead
     case 'fsb': {
       const inner = await decode20(enc.bytes, s * enc.width, e * enc.width, buf, ctx)
 
-      if (!inner.fixed) throw new Error('fixed-size binary page has no bytes')
+      if (!inner.fixed) corrupt('fixed-size binary')
 
       return { bits: enc.width * 8, fixed: inner.fixed }
     }
@@ -214,11 +215,11 @@ export async function decode20(enc: Enc20, s: number, e: number, buf: BufferRead
       return { constant: enc.value }
     case 'list':
     case 'unsupported':
-      throw new Error(`unsupported Lance 2.0 encoding "${enc.kind === 'unsupported' ? enc.name : enc.kind}"`)
+      return unsupported(`the Lance 2.0 encoding ${enc.kind === 'unsupported' ? enc.name : enc.kind}`)
     default: {
-      const never: never = enc
+      const unknownKind: never = enc
 
-      throw new Error(`unknown Lance 2.0 encoding ${JSON.stringify(never)}`)
+      return corrupt(`encoding ${String(unknownKind)}`)
     }
   }
 }
@@ -240,7 +241,7 @@ async function decodeBinary(enc: BinaryEnc, s: number, e: number, buf: BufferRea
   const n = e - s
   const idx = await decode20(enc.indices, Math.max(0, s - 1), e, buf, ctx)
 
-  if (!idx.fixed) throw new Error('binary page has no offsets')
+  if (!idx.fixed) corrupt('binary')
 
   const raw = idx.fixed
   const adj = enc.nullAdjust
@@ -299,7 +300,7 @@ async function decodeBinary(enc: BinaryEnc, s: number, e: number, buf: BufferRea
   if (end > base) {
     const inner = await decode20(bytesEnc, base, end, buf, ctx)
 
-    if (!inner.fixed) throw new Error('binary page has no bytes')
+    if (!inner.fixed) corrupt('binary')
     block.bytes = asBytes(inner.fixed)
   }
 
@@ -317,7 +318,7 @@ async function decodePackedStruct(enc: PackedStructEnc, s: number, e: number, bu
 
     while (x.kind === 'nullable') x = x.values // children are wrapped as non-null
 
-    if (x.kind !== 'flat' || x.bits % 8) throw new Error(`packed struct child ${x.kind} is not supported`)
+    if (x.kind !== 'flat' || x.bits % 8) unsupported(`packed struct children of ${x.kind}`)
 
     return x.bits / 8
   })

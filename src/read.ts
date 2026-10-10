@@ -1,4 +1,5 @@
 // Reading rows: fragments -> fields -> columns -> pages.
+import { corrupt } from './errors.ts'
 import { toNumbers } from './codecs.ts'
 import { converter } from './convert.ts'
 import { deletedRows, fileMeta, stateOf } from './dataset.ts'
@@ -149,7 +150,7 @@ async function readField(ds: LanceDataset, frag: LanceFragment, field: LanceFiel
     const meta = loc && loc.column >= 0 ? await fileMeta(ds, loc.file, ctx) : null
     const item = field.children[0]
 
-    if (!item) throw new Error(`list column "${field.name}" has no item field`)
+    if (!item) corrupt(field.name)
 
     if (meta && loc && !meta.v21) return readList20(ds, frag, item, meta, loc.column, s, e, ctx)
 
@@ -293,7 +294,7 @@ async function readList20(
     const pe = ps + page.rows
     const enc = page.encoding
 
-    if (enc.v !== 20 || enc.enc.kind !== 'list') throw new Error('expected a Lance 2.0 list page')
+    if (enc.v !== 20 || enc.enc.kind !== 'list') corrupt('list page')
 
     const list = enc.enc
 
@@ -302,7 +303,7 @@ async function readList20(
       const le = Math.min(e, pe) - ps
       const block = await decode20(list.offsets, Math.max(0, ls - 1), le, bufferReader(ds, meta, column, page, ctx), ctx)
 
-      if (!block.fixed) throw new Error('list page has no offsets')
+      if (!block.fixed) corrupt('list page')
 
       const raw = toNumbers(block.fixed)
       const adj = list.nullAdjust

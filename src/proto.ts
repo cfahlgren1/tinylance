@@ -2,6 +2,8 @@
 // Varints are numbers, or bigints once they pass 2^53 (random u64 ids). Length-delimited
 // fields stay as Uint8Array views so nested messages are decoded only when read.
 
+import { corrupt } from './errors.ts'
+
 export type ProtoValue = number | bigint | Uint8Array
 
 export type Proto = Map<number, ProtoValue[]>
@@ -59,7 +61,7 @@ export function decode(bytes: Uint8Array): Proto {
       v = new DataView(bytes.buffer, bytes.byteOffset + i, 4).getUint32(0, true)
       i += 4
     } else {
-      throw new Error(`protobuf: unsupported wire type ${wire}`)
+      corrupt('protobuf')
     }
 
     const list = out.get(field)
@@ -94,7 +96,7 @@ export function bytes(m: Proto, k: number): Uint8Array | undefined {
 
   if (v === undefined) return undefined
 
-  if (!(v instanceof Uint8Array)) throw new Error(`protobuf: field ${k} is not length-delimited`)
+  if (!(v instanceof Uint8Array)) corrupt('protobuf')
 
   return v
 }
@@ -104,7 +106,7 @@ export function all(m: Proto, k: number): Uint8Array[] {
   const out: Uint8Array[] = []
 
   for (const v of m.get(k) ?? []) {
-    if (!(v instanceof Uint8Array)) throw new Error(`protobuf: field ${k} is not length-delimited`)
+    if (!(v instanceof Uint8Array)) corrupt('protobuf')
     out.push(v)
   }
 
@@ -124,7 +126,7 @@ export function num(m: Proto, k: number): number {
 
   if (v === undefined) return 0
 
-  if (v instanceof Uint8Array) throw new Error(`protobuf: field ${k} is not a number`)
+  if (v instanceof Uint8Array) corrupt('protobuf')
 
   return Number(v)
 }
@@ -135,7 +137,7 @@ export function u64(m: Proto, k: number): string {
 
   if (v === undefined) return '0'
 
-  if (v instanceof Uint8Array) throw new Error(`protobuf: field ${k} is not a number`)
+  if (v instanceof Uint8Array) corrupt('protobuf')
 
   return String(v)
 }
@@ -146,7 +148,7 @@ export function int32(m: Proto, k: number): number {
 
   if (v === undefined) return 0
 
-  if (v instanceof Uint8Array) throw new Error(`protobuf: field ${k} is not a number`)
+  if (v instanceof Uint8Array) corrupt('protobuf')
 
   return Number(BigInt.asIntN(32, BigInt(v)))
 }
@@ -192,7 +194,7 @@ export function packed(m: Proto, k: number): number[] {
 export function oneofTag(m: Proto): number {
   const first = m.keys().next()
 
-  if (first.done) throw new Error('protobuf: empty oneof')
+  if (first.done) corrupt('protobuf')
 
   return first.value
 }

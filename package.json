@@ -32,12 +32,16 @@
         "types": "./dist/node.d.ts",
         "default": "./dist/node.js"
       }
+    },
+    "./buckets": {
+      "types": "./dist/buckets-entry.d.ts",
+      "default": "./dist/buckets-entry.js"
     }
   },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "test": "node --test 'test/*.test.ts'",
-    "test:browser": "node scripts/browser.mjs",
+    "test:browser": "node scripts/browser.ts",
     "typecheck": "tsc --noEmit",
     "lint": "oxlint src test scripts",
     "format": "oxfmt src test scripts",

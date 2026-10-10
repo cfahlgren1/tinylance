@@ -1,4 +1,5 @@
 // Data files: 40-byte footer -> column metadata -> pages.
+import { corrupt, unsupported } from './errors.ts'
 import { decode, msg, num, packed, str, all, bytes } from './proto.ts'
 import type { Proto } from './proto.ts'
 import type { CachedSource } from './source.ts'
@@ -96,7 +97,7 @@ function pageEncoding(enc: Proto | undefined, v21: boolean): PageEncoding {
   // Encoding { oneof { Deferred indirect = 1; Direct direct = 2; None none = 3 } }
   if (!enc) return { v: 'none' }
 
-  if (enc.has(1)) throw new Error('deferred page encodings are not supported')
+  if (enc.has(1)) unsupported('deferred page encodings')
 
   const direct = msg(enc, 2)
   const anyBytes = direct && bytes(direct, 1)
@@ -112,5 +113,5 @@ function pageEncoding(enc: Proto | undefined, v21: boolean): PageEncoding {
 
   if (!v21 && url.endsWith('encodings.ArrayEncoding')) return { v: 20, enc: parseArrayEncoding(value) }
 
-  throw new Error(`unknown page encoding ${url}`)
+  return corrupt(url)
 }

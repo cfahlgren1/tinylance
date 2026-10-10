@@ -14,6 +14,25 @@ export interface Source {
 
 export type Fetch = typeof globalThis.fetch
 
+/**
+ * A source for a dataset URI: hf://, https://, s3:// or gs://. Bucket support is loaded only when
+ * a bucket URI is opened, so apps that read from the Hub or plain HTTP never download it.
+ */
+export async function fromUri(uri: string): Promise<Source> {
+  if (uri.startsWith('hf://')) return hfSource(uri)
+
+  if (/^https?:\/\//.test(uri)) return httpSource(uri)
+
+  const bucket = /^(s3|gs):\/\/([^/]+)\/?(.*)$/.exec(uri)
+
+  if (!bucket) throw new Error(`unsupported dataset URI "${uri}" (use hf://, https://, s3:// or gs://, or pass a source)`)
+
+  const { gcsSource, s3Source } = await import('./buckets.ts')
+  const options = { bucket: bucket[2], prefix: bucket[3] }
+
+  return bucket[1] === 's3' ? s3Source(options) : gcsSource(options)
+}
+
 /** a dataset URI rather than a source object */
 export function isUri(source: string | Source): source is string {
   return typeof source === 'string'
