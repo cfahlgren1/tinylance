@@ -46,6 +46,7 @@
     "prepack": "npm run build"
   },
   "devDependencies": {
+    "@oxlint/plugins": "1.87.0",
     "@types/node": "24.19.2",
     "esbuild": "0.28.2",
     "oxfmt": "0.72.0",

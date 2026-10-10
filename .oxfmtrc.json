@@ -3,5 +3,10 @@
   "printWidth": 160,
   "singleQuote": true,
   "semi": false,
-  "ignorePatterns": ["**/package-lock.json", "dist", "test/fixtures"]
+  "ignorePatterns": [
+    "**/package-lock.json",
+    "dist",
+    "test/fixtures",
+    "tools/oxlint/anti-slop"
+  ]
 }
