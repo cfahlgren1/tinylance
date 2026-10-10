@@ -22,7 +22,7 @@ export interface LanceReadOptions {
   limit?: number
   /** binary values larger than this come back as LazyValue handles instead of bytes */
   maxInlineBytes?: number
-  signal?: AbortSignal
+  signal?: AbortSignal | undefined
   /** called with each fragment's rows as soon as they are decoded */
   onChunk?: (chunk: { offset: number; rows: Row[] }) => void
 }

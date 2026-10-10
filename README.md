@@ -24,6 +24,16 @@ const rows = await lanceRead(dataset, { columns: ['image', 'label'], offset: 0, 
 
 Or in one call: `await readRows(url, { limit: 20 })`. Datasets can be `hf://`, `https://`, `s3://` or `gs://` URLs, or a local path in Node. For private buckets, pass a source from `tinylance/buckets`.
 
+For a LanceDB database (a folder of tables):
+
+```js
+import { lancedbConnect } from 'tinylance/lancedb'
+
+const db = lancedbConnect('hf://datasets/lance-format/mnist-lance/data')
+await db.tables() // [{ name: 'test', location: 'test.lance' }, { name: 'train', ... }]
+const train = await db.open('train')
+```
+
 tinylance fetches only the byte ranges it needs. Opening a dataset takes 2 requests, and a page of 20 rows a few more. Pass `maxInlineBytes` and large values (videos, images) come back as lazy handles you `read()` when needed. Every call takes an `AbortSignal`.
 
 ## Why

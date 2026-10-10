@@ -21,6 +21,13 @@ const xmlTag = (xml: string, tag: string): string[] => Array.from(xml.matchAll(n
 
 const trimSlashes = (p: string): string => p.replace(/^\/|\/$/g, '')
 
+/** the object-key prefix that lists `dir` (the dataset root when empty) */
+const listPrefix = (prefix: string, dir: string): string => {
+  const p = [prefix, dir].filter(Boolean).join('/')
+
+  return p ? `${p}/` : ''
+}
+
 /** S3 or an S3-compatible store. Public buckets need no auth. */
 export function s3Source(options: S3SourceOptions): Source {
   const f = options.fetch ?? globalThis.fetch
@@ -43,7 +50,7 @@ export function s3Source(options: S3SourceOptions): Source {
   return {
     ...http,
     async list(dir, signal) {
-      const p = `${prefix ? `${prefix}/` : ''}${dir}/`
+      const p = listPrefix(prefix, dir)
       const out: SourceEntry[] = []
       let token: string | undefined
 
@@ -99,7 +106,7 @@ export function gcsSource(options: GcsSourceOptions): Source {
   return {
     ...http,
     async list(dir, signal) {
-      const p = `${prefix ? `${prefix}/` : ''}${dir}/`
+      const p = listPrefix(prefix, dir)
       const out: SourceEntry[] = []
       let pageToken: string | undefined
 

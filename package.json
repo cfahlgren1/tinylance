@@ -36,6 +36,10 @@
     "./buckets": {
       "types": "./dist/buckets-entry.d.ts",
       "default": "./dist/buckets-entry.js"
+    },
+    "./lancedb": {
+      "types": "./dist/lancedb.d.ts",
+      "default": "./dist/lancedb.js"
     }
   },
   "scripts": {

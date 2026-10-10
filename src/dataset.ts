@@ -57,7 +57,7 @@ export interface LanceDataset {
 export interface LanceOpenOptions {
   /** a specific dataset version; defaults to the latest */
   version?: number
-  signal?: AbortSignal
+  signal?: AbortSignal | undefined
   decompressors?: Decompressors
 }
 

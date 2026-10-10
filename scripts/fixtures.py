@@ -1,6 +1,6 @@
 # /// script
 # requires-python = ">=3.11"
-# dependencies = ["pylance==13.0.0", "pyarrow>=21", "numpy>=2"]
+# dependencies = ["pylance==13.0.0", "pyarrow>=21", "numpy>=2", "lance-namespace"]
 # ///
 """Generate the test fixtures: small Lance datasets written by pylance, each with pylance's own
 to_table() output in expected.json. Run with `uv run scripts/fixtures.py`."""
@@ -199,6 +199,30 @@ def encode(v):
     raise TypeError(f"cannot encode {type(v)}")
 
 
+def lancedb_dirs():
+    # a LanceDB directory namespace (tables listed in a __manifest table) and a plain LanceDB folder
+    import lance.namespace
+    from lance_namespace import CreateTableRequest
+
+    def ipc(table):
+        sink = pa.BufferOutputStream()
+        with pa.ipc.new_stream(sink, table.schema) as w:
+            w.write_table(table)
+        return sink.getvalue().to_pybytes()
+
+    animals = pa.table({"name": ["cat", "dog", "bird"], "legs": [4, 4, 2]})
+    numbers = pa.table({"n": [1, 2, 3, 4]})
+    root = os.path.join(OUT, "lancedb")
+    os.makedirs(root)
+    ns = lance.namespace.DirectoryNamespace(root=root, manifest_enabled="true")
+    ns.create_table(CreateTableRequest(id=["animals"]), ipc(animals))
+    ns.create_table(CreateTableRequest(id=["numbers"]), ipc(numbers))
+    plain = os.path.join(OUT, "lancedb-plain")
+    lance.write_dataset(animals, os.path.join(plain, "animals.lance"))
+    lance.write_dataset(numbers, os.path.join(plain, "numbers.lance"))
+    print("lancedb, lancedb-plain: 2 tables each")
+
+
 def write(name, table, version, **kw):
     path = os.path.join(OUT, f"{name}-v{version}.lance")
     lance.write_dataset(table, path, data_storage_version=version, **kw)
@@ -267,6 +291,8 @@ def main():
         ds.delete("id BETWEEN 2100 AND 8200 OR id % 10 = 3")
         paths.append(path)
     snapshot("deletions", paths)
+
+    lancedb_dirs()
 
     with open(os.path.join(OUT, "pylance.json"), "w") as f:
         json.dump({"pylance": lance.__version__, "pyarrow": pa.__version__}, f)
