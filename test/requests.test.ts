@@ -50,6 +50,7 @@ test('a pinned version opens without the latest version', async () => {
 const PAGE_BUDGETS = new Map([
   ['blobfiles-v2.0', [1, 0]],
   ['blobfiles-v2.1', [1, 0]],
+  ['blobv2-v2.2', [1, 0]],
   ['blobs-v2.0', [6, 5]],
   ['blobs-v2.1', [4, 4]],
   ['blobs-v2.2', [4, 4]],

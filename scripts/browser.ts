@@ -18,6 +18,7 @@ const FIXTURES = [
   'deletions-v2.1',
   'zstd-v2.2',
   'blobs-v2.1',
+  'blobv2-v2.2',
 ]
 
 /** a JSON-safe view of rows that is identical in Node and the browser */

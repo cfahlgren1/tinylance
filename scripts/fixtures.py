@@ -155,6 +155,21 @@ def blob_files(n=12):
     return pa.table({"id": pa.array(np.arange(n, dtype=np.int64)), "blob": pa.array(values, pa.large_binary())}, schema=schema)
 
 
+def blob_v2(n=9):
+    # 2.2 blob columns (blob v2). Small thresholds put values inline in the data file (< 100 bytes),
+    # in a shared packed sidecar file, or in their own dedicated file (>= 5,000 bytes)
+    r = rng(9)
+    sizes = [10, 60, None, 0, 1000, 3000, 8000, 99, 6000][:n]
+    values = [None if s is None else bytes(r.integers(0, 256, s, dtype=np.uint8)) for s in sizes]
+    meta = {
+        "lance-encoding:blob": "true",
+        "lance-encoding:blob-inline-size-threshold": "100",
+        "lance-encoding:blob-dedicated-size-threshold": "5000",
+    }
+    schema = pa.schema([pa.field("id", pa.int64()), pa.field("blob", pa.large_binary(), metadata=meta)])
+    return pa.table({"id": pa.array(np.arange(n, dtype=np.int64)), "blob": pa.array(values, pa.large_binary())}, schema=schema)
+
+
 def zstd_strings():
     meta = {b"lance-encoding:compression": b"zstd"}
     t = strings()
@@ -194,7 +209,9 @@ def table_rows(ds):
     rows = ds.to_table().to_pylist()
     # blob columns read back as descriptors; record the bytes they point at instead
     for field in ds.schema:
-        if field.metadata and field.metadata.get(b"lance-encoding:blob") == b"true":
+        blob_v1 = field.metadata and field.metadata.get(b"lance-encoding:blob") == b"true"
+        blob_v2 = getattr(field.type, "extension_name", None) == "lance.blob.v2"
+        if blob_v1 or blob_v2:
             blobs = ds.take_blobs(field.name, indices=list(range(len(rows))))
             for row, blob in zip(rows, blobs):
                 row[field.name] = blob.readall() if blob is not None else None
@@ -228,9 +245,9 @@ def main():
     snapshot("structs", [write("structs", null_structs(), v) for v in ["2.1", "2.2"]])
     snapshot("nullvectors", [write("nullvectors", nullable_vectors(), v) for v in VERSIONS])
     snapshot("blobfiles", [write("blobfiles", blob_files(), v) for v in ["2.0", "2.1"]])
-    # datasets tinylance rejects on purpose, kept to test the errors: blob v2 (what 2.2 writes for
-    # blob columns), blob v2 inside a struct, and fixed-size lists nested with nulls inside
-    write("blobv2", blob_files(), "2.2")
+    snapshot("blobv2", [write("blobv2", blob_v2(), "2.2")])
+    # datasets for single tests: blob v2 inside a struct, and fixed-size lists nested with nulls
+    # inside (rejected on purpose)
     blob = pa.field("b", pa.large_binary(), metadata={"lance-encoding:blob": "true"})
     nested_blob = pa.schema([pa.field("s", pa.struct([blob, pa.field("id", pa.int32())]))])
     write("blobv2nested", pa.Table.from_pylist([{"s": {"b": b"hello", "id": 1}}, {"s": {"b": None, "id": 2}}], schema=nested_blob), "2.2")

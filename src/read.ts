@@ -1,5 +1,6 @@
 // Reading rows: fragments -> fields -> columns -> pages.
 import { corrupt } from './errors.ts'
+import { blobV1Values, blobV2Values } from './blobs.ts'
 import { toNumbers } from './codecs.ts'
 import { converter } from './convert.ts'
 import { deletedRows, fileMeta, stateOf, zstdFor } from './dataset.ts'
@@ -8,7 +9,7 @@ import type { FileMeta, Page } from './file.ts'
 import { STRUCT_NULL } from './repdef.ts'
 import { decode20 } from './v20.ts'
 import type { BufferReader } from './v20.ts'
-import { blobValues, readPage21 } from './v21.ts'
+import { readPage21 } from './v21.ts'
 import type { PageIO } from './v21.ts'
 import type { Block, Convert, DecodeContext, LazyValue, Row, Value } from './types.ts'
 
@@ -31,8 +32,6 @@ export async function lanceRead(ds: LanceDataset, options: LanceReadOptions = {}
   options.signal?.throwIfAborted()
 
   const fields = options.columns ? options.columns.map((c) => columnField(ds, c)) : ds.schema
-
-  for (const f of fields) rejectBlobV2(f, f.name)
 
   const ctx: DecodeContext = {
     zstd: stateOf(ds).decompressors.zstd,
@@ -68,13 +67,6 @@ export async function lanceRead(ds: LanceDataset, options: LanceReadOptions = {}
   }
 
   return (await Promise.all(tasks)).flat()
-}
-
-/** blob v2 columns would decode as empty structs; fail loudly instead, naming the field */
-function rejectBlobV2(field: LanceField, path: string): void {
-  if (field.metadata['ARROW:extension:name'] === 'lance.blob.v2') throw new Error(`column "${path}" uses Lance blob v2, which tinylance can't read yet`)
-
-  for (const c of field.children) rejectBlobV2(c, `${path}.${c.name}`)
 }
 
 function columnField(ds: LanceDataset, name: string): LanceField {
@@ -140,6 +132,8 @@ function locate(frag: LanceFragment, field: LanceField): { file: LanceDataFile; 
 const isList = (t: string): boolean => t.startsWith('list') || t.startsWith('large_list')
 
 async function readField(ds: LanceDataset, frag: LanceFragment, field: LanceField, s: number, e: number, ctx: DecodeContext, depth: number): Promise<Value[]> {
+  if (field.metadata['ARROW:extension:name'] === 'lance.blob.v2') return readBlobV2(ds, frag, field, s, e, ctx)
+
   if (field.type === 'struct') {
     const children = await Promise.all(field.children.map((c) => readField(ds, frag, c, s, e, ctx, depth)))
 
@@ -168,6 +162,18 @@ async function readField(ds: LanceDataset, frag: LanceFragment, field: LanceFiel
   if (!loc || loc.column < 0) return new Array<Value>(e - s).fill(null)
 
   return readColumn(ds, await fileMeta(ds, loc.file, ctx), loc.column, s, e, converter(field.type), ctx)
+}
+
+/** blob v2 columns are stored as one column of descriptors; each row becomes a LazyValue */
+async function readBlobV2(ds: LanceDataset, frag: LanceFragment, field: LanceField, s: number, e: number, ctx: DecodeContext): Promise<Value[]> {
+  const loc = locate(frag, field)
+
+  if (!loc || loc.column < 0) return new Array<Value>(e - s).fill(null)
+
+  const meta = await fileMeta(ds, loc.file, ctx)
+  const { source } = stateOf(ds)
+
+  return readColumn(ds, meta, loc.column, s, e, (block, n) => blobV2Values(block, n, meta.path, source.read), ctx)
 }
 
 function zipStruct(names: string[], children: Value[][], depth: number): Value[] {
@@ -209,7 +215,10 @@ function zipStruct(names: string[], children: Value[][], depth: number): Value[]
 function pageIO(ds: LanceDataset, path: string): PageIO {
   const source = stateOf(ds).source
 
-  return { readMany: (ranges, signal) => Promise.all(ranges.map(([o, l]) => source.read(path, o, l, signal))) }
+  return {
+    readMany: (ranges, signal) => Promise.all(ranges.map(([o, l]) => source.read(path, o, l, signal))),
+    readAt: (offset, length, signal) => source.read(path, offset, length, signal),
+  }
 }
 
 async function readColumn(ds: LanceDataset, meta: FileMeta, column: number, s: number, e: number, convert: Convert, ctx: DecodeContext): Promise<Value[]> {
@@ -257,7 +266,7 @@ function bufferReader(ds: LanceDataset, meta: FileMeta, column: number, page: Pa
 function blockToValues(block: Block, n: number, convert: Convert, io: PageIO): Value[] {
   if (block.allNull) return new Array<Value>(n).fill(null)
 
-  if (block.packed) return blobValues(block, n, io)
+  if (block.packed) return blobV1Values(block, n, io.readAt)
 
   let vals: Value[]
 

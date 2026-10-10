@@ -33,18 +33,18 @@ tinylance fetches only the byte ranges it needs. Opening a dataset takes 2 reque
 | **tinylance**      | ✅                  | **16 KB** gzip | **0**           |
 | `@lancedb/lancedb` | ❌ (Node only)      | ~254 MB native       | native + Arrow  |
 
-Checked against pylance on the 176 Lance tables found on the Hugging Face Hub in October 2026: the first and a middle page of 20 rows match exactly on 172. Three more read but were too large to diff, and one uses blob v2. Opening takes a median of 2 requests, and a 20-row page 7 more.
+Checked against pylance on the 176 Lance tables found on the Hugging Face Hub in October 2026: the first and a middle page of 20 rows match exactly on 173. The other three read without errors but were too large to diff. Opening takes a median of 2 requests, and a 20-row page 7 more.
 
 ## Supports
 
 - Lance file formats 2.0, 2.1 and 2.2, with deletions and schema evolution
 - Every encoding pylance writes by default, including FSST, RLE, dictionary, bitpacking, LZ4 and zstd
 - Numbers, strings, binary, timestamps, lists, structs and fixed-size lists (vectors come back as typed arrays)
-- Blob columns, as lazy values
+- Blob columns (v1 and v2), as lazy values: inline, packed and dedicated blob files, and external `https://` blobs
 
 zstd uses Node's built-in decoder. Browsers and Workers have none, so tinylance loads a bundled one ([fzstd](https://github.com/101arrowz/fzstd), 3.7 KB) the first time a dataset needs it.
 
-**Not yet:** blob v2 columns (Lance 2.2), vector and full-text search, filters, writing.
+**Not yet:** vector and full-text search, filters, writing.
 
 ## Develop
 

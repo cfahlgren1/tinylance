@@ -17,11 +17,19 @@ import {
   words,
 } from './codecs.ts'
 import type { Compression, FsstTable } from './codecs.ts'
-import { bytes, decode, has, msg, num, oneofTag, packed } from './proto.ts'
+import { all, bytes, decode, has, msg, num, oneofTag, packed } from './proto.ts'
 import type { Proto } from './proto.ts'
+import { blobV1Values } from './blobs.ts'
 import { unravel } from './repdef.ts'
 import type { Layer } from './repdef.ts'
 import type { Block, Convert, DecodeContext, LazyValue, PackedChild, Value } from './types.ts'
+
+/** a child of a variable packed struct: fixed width (`bits`) or length-prefixed (`lengthBits`) */
+export interface VarPackedField {
+  value: Enc21
+  bits: number
+  lengthBits: number
+}
 
 export type Enc21 =
   | { kind: 'flat'; bits: number; compression: Compression | undefined }
@@ -36,10 +44,10 @@ export type Enc21 =
   | { kind: 'general'; scheme: Compression; values: Enc21 }
   | { kind: 'fsl'; dim: number; validity: boolean; values: Enc21 }
   | { kind: 'packedstruct'; bits: number[]; values: Enc21 }
+  | { kind: 'varpackedstruct'; fields: VarPackedField[] }
   | { kind: 'unsupported'; name: string }
 
 const UNSUPPORTED = new Map([
-  [13, 'variable packed struct'],
   [14, 'range'],
   [15, 'delta'],
 ])
@@ -107,6 +115,15 @@ export function parseEncoding(raw: Uint8Array): Enc21 {
       return { kind: 'fsl', dim: num(m, 1), validity: !!num(m, 3), values: child(m, 2) }
     case 12:
       return { kind: 'packedstruct', bits: packed(m, 1), values: child(m, 2) }
+    case 13:
+      return {
+        kind: 'varpackedstruct',
+        fields: all(m, 1).map((raw) => {
+          const f = decode(raw)
+
+          return { value: child(f, 1), bits: num(f, 2), lengthBits: num(f, 3) }
+        }),
+      }
     default:
       return { kind: 'unsupported', name: UNSUPPORTED.get(tag) ?? `#${tag}` }
   }
@@ -298,6 +315,7 @@ function decodeBlock(e: Enc21, bufs: Uint8Array[], n: number, ctx: DecodeContext
     case 'constant':
       return e.value ? { constant: e.value } : { allNull: true }
     case 'dict':
+    case 'varpackedstruct':
     case 'unsupported':
       return unsupported(`the Lance 2.1 encoding ${e.kind === 'unsupported' ? e.name : e.kind}`)
     default: {
@@ -470,6 +488,8 @@ export interface PageRef {
 
 export interface PageIO {
   readMany(ranges: [number, number][], signal?: AbortSignal): Promise<Uint8Array[]>
+  /** one range of the page's data file */
+  readAt(offset: number, length: number, signal?: AbortSignal): Promise<Uint8Array>
 }
 
 /** Read rows [start, end) of one page as JS values, nulls applied. */
@@ -483,7 +503,7 @@ export function readPage21(page: PageRef, layout: Layout, start: number, end: nu
       return readConstant(page, layout, start, end, io, ctx, convert)
     case 'blob':
       // large binaries stored out of line: the page holds (position, size) descriptors
-      if (layout.inner.kind === 'miniblock') return readMiniBlock(page, layout.inner, start, end, io, ctx, (block, n) => blobValues(block, n, io))
+      if (layout.inner.kind === 'miniblock') return readMiniBlock(page, layout.inner, start, end, io, ctx, (block, n) => blobV1Values(block, n, io.readAt))
 
       return unsupported(`blob layouts over ${layout.inner.kind}`)
     case 'unsupported':
@@ -881,6 +901,8 @@ function readFullZipSpan(l: FullZipLayout, data: Uint8Array, ctx: DecodeContext,
     if (itemValid) block.itemValid = itemValid
 
     vals = convert(block, items.length)
+  } else if (l.value.kind === 'varpackedstruct') {
+    vals = convert({ packed: unpackRows(l.value.fields, items, ctx) }, items.length)
   } else {
     // variable width: stitch into offsets and bytes
     const offsets = new Uint32Array(items.length + 1)
@@ -907,28 +929,6 @@ function readFullZipSpan(l: FullZipLayout, data: Uint8Array, ctx: DecodeContext,
   if (!hasRep && !l.bitsDef) return vals
 
   return unravel(vals, hasRep ? Uint16Array.from(reps) : null, l.bitsDef ? Uint16Array.from(defs) : null, l.layers)
-}
-
-/**
- * Blob columns store (position, size) descriptors; the bytes sit at that absolute offset in the
- * same data file. Every blob comes back lazy. A null is stored as size 0 at a non-zero position.
- */
-export function blobValues(block: Block, n: number, io: PageIO): Value[] {
-  const [pos, size] = block.packed ?? []
-
-  if (!pos || !size) corrupt('blob')
-
-  const out = new Array<Value>(n)
-
-  for (let i = 0; i < n; i++) {
-    const p = Number(pos[i])
-    const s = Number(size[i])
-    const lazy: LazyValue = { byteLength: s, read: async (signal) => (s ? (await io.readMany([[p, s]], signal))[0] : new Uint8Array(0)) }
-
-    out[i] = s === 0 && p !== 0 ? null : lazy
-  }
-
-  return out
 }
 
 async function readFullZipLazy(
@@ -1027,6 +1027,8 @@ function usesZstd(e: Enc21 | undefined): boolean {
       return usesZstd(e.indices) || usesZstd(e.items)
     case 'rle':
       return usesZstd(e.values) || usesZstd(e.lengths)
+    case 'varpackedstruct':
+      return e.fields.some((f) => usesZstd(f.value))
     case 'constant':
     case 'unsupported':
       return false
@@ -1046,4 +1048,42 @@ export function layoutUsesZstd(l: Layout): boolean {
     case 'unsupported':
       return false
   }
+}
+
+/**
+ * Split variable packed struct rows into one array per field. A row holds its fields back to back:
+ * fixed-width ones as little-endian integers, the rest as a length prefix and bytes. An empty row
+ * (a null) yields 0 or empty bytes for every field.
+ */
+function unpackRows(fields: VarPackedField[], rows: (Uint8Array | null)[], ctx: DecodeContext): PackedChild[] {
+  const out: PackedChild[] = fields.map(() => new Array(rows.length))
+
+  rows.forEach((row, i) => {
+    let o = 0
+
+    fields.forEach((f, k) => {
+      if (!row?.length) {
+        out[k][i] = f.bits ? 0 : new Uint8Array(0)
+
+        return
+      }
+
+      if (f.bits) {
+        out[k][i] = readUint(row, o, f.bits / 8)
+        o += f.bits / 8
+
+        return
+      }
+
+      const len = readUint(row, o, f.lengthBits / 8)
+      let v = row.subarray(o + f.lengthBits / 8, o + f.lengthBits / 8 + len)
+
+      o += f.lengthBits / 8 + len
+
+      if (f.value.kind === 'general') v = decompress(f.value.scheme, v, ctx)
+      out[k][i] = v
+    })
+  })
+
+  return out
 }

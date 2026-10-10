@@ -126,12 +126,33 @@ test('blob columns come back as lazy values that read their bytes', async () => 
   }
 })
 
-test('blob v2 columns fail with a clear error instead of returning empty values', async () => {
-  const ds = await lanceOpen(fixture('blobv2-v2.2.lance'))
+test('blob v2 values are lazy, whether inline, in a packed sidecar or in their own file', async () => {
+  const rows = await readRows(fixture('blobv2-v2.2.lance'))
+  const expected = expectedRows('blobv2')
 
-  await assert.rejects(lanceRead(ds), /column "blob" uses Lance blob v2/)
-  assert.equal((await lanceRead(ds, { columns: ['id'] })).length, 12)
-  await assert.rejects(readRows(fixture('blobv2nested-v2.2.lance')), /column "s.b" uses Lance blob v2/)
+  for (const [i, { blob }] of rows.entries()) {
+    if (expected[i].blob === null) {
+      assert.equal(blob, null)
+      continue
+    }
+
+    assert.ok(isLazy(blob))
+
+    const bytes = await blob.read()
+
+    assert.equal(blob.byteLength, bytes.length)
+    assert.deepEqual({ $bytes: bytes.length, sha1: createHash('sha1').update(bytes).digest('hex') }, expected[i].blob)
+  }
+})
+
+test('blob v2 columns inside a struct read too', async () => {
+  const rows = await readRows(fixture('blobv2nested-v2.2.lance'))
+  const [first, second] = rows.map((r) => r.s)
+
+  assert.ok(first instanceof Object && 'b' in first && isLazy(first.b))
+  assert.equal(new TextDecoder().decode(await first.b.read()), 'hello')
+  assert.ok(second instanceof Object && 'b' in second)
+  assert.equal(second.b, null)
 })
 
 for (const version of ['2.0', '2.1', '2.2']) {
