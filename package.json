@@ -49,6 +49,7 @@
     "@oxlint/plugins": "1.87.0",
     "@types/node": "24.19.2",
     "esbuild": "0.28.2",
+    "fzstd": "0.1.1",
     "oxfmt": "0.72.0",
     "oxlint": "1.87.0",
     "playwright": "1.64.0",
