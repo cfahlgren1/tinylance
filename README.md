@@ -2,10 +2,10 @@
 
 # tinylance
 
-**Read [Lance](https://github.com/lance-format/lance) datasets anywhere JavaScript runs.** Browsers, Node, Bun, Deno and Workers, in {{SIZE}} KB with zero dependencies.
+**Read [Lance](https://github.com/lance-format/lance) datasets anywhere JavaScript runs.** Browsers, Node, Bun, Deno and Workers, in 16 KB with zero dependencies.
 
 <img src="https://img.shields.io/badge/license-MIT-2ea44f" alt="MIT">
-<img src="https://img.shields.io/badge/gzip-{{SIZE}}%20KB-orange" alt="{{SIZE}} KB gzip">
+<img src="https://img.shields.io/badge/gzip-16%20KB-orange" alt="16 KB gzip">
 <img src="https://img.shields.io/badge/dependencies-0-blue" alt="0 dependencies">
 
 </div>
@@ -30,10 +30,10 @@ tinylance fetches only the byte ranges it needs. Opening a dataset takes 2 reque
 
 |                    | Runs in the browser | Size                 | Dependencies    |
 | ------------------ | ------------------- | -------------------- | --------------- |
-| **tinylance**      | ✅                  | **{{SIZE}} KB** gzip | **0**           |
+| **tinylance**      | ✅                  | **16 KB** gzip | **0**           |
 | `@lancedb/lancedb` | ❌ (Node only)      | ~254 MB native       | native + Arrow  |
 
-{{HUB}}
+Checked against pylance on the 176 Lance tables found on the Hugging Face Hub in October 2026: the first and a middle page of 20 rows match exactly on 172. Three more read but were too large to diff, and one uses blob v2. Opening takes a median of 2 requests, and a 20-row page 7 more.
 
 ## Supports
 
