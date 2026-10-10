@@ -21,16 +21,16 @@
   "files": [
     "dist"
   ],
-  "types": "./dist/node.d.ts",
+  "types": "./dist/index.d.ts",
   "exports": {
     ".": {
-      "browser": {
-        "types": "./dist/index.d.ts",
-        "default": "./dist/index.js"
-      },
-      "default": {
+      "node": {
         "types": "./dist/node.d.ts",
         "default": "./dist/node.js"
+      },
+      "default": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
       }
     },
     "./buckets": {
@@ -40,6 +40,7 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
+    "pretest": "npm run build",
     "test": "node --test 'test/*.test.ts'",
     "test:browser": "node scripts/browser.ts",
     "typecheck": "tsc --noEmit",

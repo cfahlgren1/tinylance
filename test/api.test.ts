@@ -130,7 +130,24 @@ test('blob v2 columns fail with a clear error instead of returning empty values'
 
   await assert.rejects(lanceRead(ds), /column "blob" uses Lance blob v2/)
   assert.equal((await lanceRead(ds, { columns: ['id'] })).length, 12)
+  await assert.rejects(readRows(fixture('blobv2nested-v2.2.lance')), /column "s.b" uses Lance blob v2/)
 })
+
+for (const version of ['2.0', '2.1', '2.2']) {
+  test(`fixed-size lists nested with nulls inside are rejected, not misread (v${version})`, async () => {
+    await assert.rejects(readRows(fixture(`nestednull-v${version}.lance`)), /doesn't support nested fixed-size lists with nulls inside/)
+  })
+
+  test(`lazy values outlive the signal of the read that returned them (v${version})`, async () => {
+    const controller = new AbortController()
+    const [row] = await readRows(fixture(`blobs-v${version}.lance`), { columns: ['image'], limit: 1, maxInlineBytes: 1000, signal: controller.signal })
+
+    controller.abort()
+
+    assert.ok(isLazy(row.image))
+    assert.equal((await row.image.read()).length, row.image.byteLength)
+  })
+}
 
 test('a failed request is retried by the next read instead of being cached', async () => {
   const files = fileSource(fixture('deletions-v2.1.lance'))

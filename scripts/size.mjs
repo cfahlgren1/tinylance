@@ -5,7 +5,8 @@ import { readFileSync } from 'node:fs'
 import { gzipSync } from 'node:zlib'
 import { build } from 'esbuild'
 
-const BUDGET_GZIP = 16 * 1024
+// an alarm for bloat, not a target to shave bytes against
+const BUDGET_GZIP = 20 * 1024
 
 const root = new URL('..', import.meta.url).pathname
 

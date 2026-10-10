@@ -131,6 +131,9 @@ function leafConverter(type: string): Convert {
         return Array.from({ length: n }, (_, i) => items.slice(i * dim, (i + 1) * dim))
       }
 
+      // every item null: only validity was stored
+      if (block.itemValid && !block.fixed && !block.constant) return Array.from({ length: n }, () => new Array<Value>(dim).fill(null))
+
       // a constant page stores one vector; every row shares its values
       const values = flat(inner, block, block.constant ? dim : n * dim)
       const step = block.constant ? 0 : dim

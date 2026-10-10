@@ -141,6 +141,7 @@ def nullable_vectors(n=300):
     return pa.table({
         "null_rows": pa.array([None if i % 3 == 0 else [float(i), 2.0, 3.0] for i in range(n)], pa.list_(pa.float32(), 3)),
         "null_items": pa.array([[float(i), None, 3.0] for i in range(n)], pa.list_(pa.float32(), 3)),
+        "all_null_items": pa.array([[None, None, None]] * n, pa.list_(pa.float32(), 3)),
         "wide_null_rows": pa.array([None if i % 4 == 0 else wide[i] for i in range(n)], pa.list_(pa.float32(), 128)),
         "wide_null_items": pa.array([[None if (i + k) % 9 == 0 else x for k, x in enumerate(wide[i])] for i in range(n)], pa.list_(pa.float32(), 128)),
     })
@@ -227,8 +228,15 @@ def main():
     snapshot("structs", [write("structs", null_structs(), v) for v in ["2.1", "2.2"]])
     snapshot("nullvectors", [write("nullvectors", nullable_vectors(), v) for v in VERSIONS])
     snapshot("blobfiles", [write("blobfiles", blob_files(), v) for v in ["2.0", "2.1"]])
-    # 2.2 writes blob columns as blob v2, which tinylance does not read yet; kept to test the error
+    # datasets tinylance rejects on purpose, kept to test the errors: blob v2 (what 2.2 writes for
+    # blob columns), blob v2 inside a struct, and fixed-size lists nested with nulls inside
     write("blobv2", blob_files(), "2.2")
+    blob = pa.field("b", pa.large_binary(), metadata={"lance-encoding:blob": "true"})
+    nested_blob = pa.schema([pa.field("s", pa.struct([blob, pa.field("id", pa.int32())]))])
+    write("blobv2nested", pa.Table.from_pylist([{"s": {"b": b"hello", "id": 1}}, {"s": {"b": None, "id": 2}}], schema=nested_blob), "2.2")
+    nested_null = pa.table({"v": pa.array([[None, [float(i), 2.0, 3.0]] for i in range(200)], pa.list_(pa.list_(pa.float32(), 3), 2))})
+    for v in VERSIONS:
+        write("nestednull", nested_null, v)
 
     # several fragments and versions, with both deletion file kinds. Lance switches from an Arrow
     # list to a Roaring bitmap above 5,000 deleted rows in one fragment.

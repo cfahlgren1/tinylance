@@ -32,8 +32,7 @@ export async function lanceRead(ds: LanceDataset, options: LanceReadOptions = {}
 
   const fields = options.columns ? options.columns.map((c) => columnField(ds, c)) : ds.schema
 
-  for (const f of fields)
-    if (f.metadata['ARROW:extension:name'] === 'lance.blob.v2') throw new Error(`column "${f.name}" uses Lance blob v2, which tinylance can't read yet`)
+  for (const f of fields) rejectBlobV2(f, f.name)
 
   const ctx: DecodeContext = {
     zstd: stateOf(ds).decompressors.zstd,
@@ -69,6 +68,13 @@ export async function lanceRead(ds: LanceDataset, options: LanceReadOptions = {}
   }
 
   return (await Promise.all(tasks)).flat()
+}
+
+/** blob v2 columns would decode as empty structs; fail loudly instead, naming the field */
+function rejectBlobV2(field: LanceField, path: string): void {
+  if (field.metadata['ARROW:extension:name'] === 'lance.blob.v2') throw new Error(`column "${path}" uses Lance blob v2, which tinylance can't read yet`)
+
+  for (const c of field.children) rejectBlobV2(c, `${path}.${c.name}`)
 }
 
 function columnField(ds: LanceDataset, name: string): LanceField {
@@ -222,8 +228,7 @@ async function readColumn(ds: LanceDataset, meta: FileMeta, column: number, s: n
     const enc = page.encoding
 
     if (enc.v === 21) parts.push(readPage21(page, enc.layout, ls, le, io, ctx, convert))
-    else if (enc.v === 20)
-      parts.push(decode20(enc.enc, ls, le, bufferReader(ds, meta, column, page, ctx), ctx).then((b) => blockToValues(b, le - ls, convert, io)))
+    else if (enc.v === 20) parts.push(decode20(enc.enc, ls, le, bufferReader(ds, meta, column, page), ctx).then((b) => blockToValues(b, le - ls, convert, io)))
     else parts.push(Promise.resolve(new Array<Value>(le - ls).fill(null)))
   }
 
@@ -232,11 +237,11 @@ async function readColumn(ds: LanceDataset, meta: FileMeta, column: number, s: n
   return res.length === 1 ? res[0] : res.flat()
 }
 
-function bufferReader(ds: LanceDataset, meta: FileMeta, column: number, page: Page, ctx: DecodeContext): BufferReader {
+function bufferReader(ds: LanceDataset, meta: FileMeta, column: number, page: Page): BufferReader {
   const source = stateOf(ds).source
   const col = meta.columns[column]
 
-  return (ref, from, to, signal = ctx.signal) => {
+  return (ref, from, to, signal) => {
     const [off, size] =
       ref.type === 0 ? [page.offsets[ref.index], page.sizes[ref.index]] : ref.type === 1 ? col.buffers[ref.index] : meta.globalBuffers[ref.index]
 
@@ -301,7 +306,7 @@ async function readList20(
     if (pe > s && ps < e) {
       const ls = Math.max(s, ps) - ps
       const le = Math.min(e, pe) - ps
-      const block = await decode20(list.offsets, Math.max(0, ls - 1), le, bufferReader(ds, meta, column, page, ctx), ctx)
+      const block = await decode20(list.offsets, Math.max(0, ls - 1), le, bufferReader(ds, meta, column, page), ctx)
 
       if (!block.fixed) corrupt('list page')
 

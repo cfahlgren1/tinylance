@@ -30,7 +30,7 @@ export type Enc20 =
   | { kind: 'unsupported'; name: string }
 
 /** returns bytes [from, to) of a referenced buffer */
-export type BufferReader = (ref: BufferRef, from: number, to: number, signal?: AbortSignal) => Promise<Uint8Array>
+export type BufferReader = (ref: BufferRef, from: number, to: number, signal: AbortSignal | undefined) => Promise<Uint8Array>
 
 function required(m: Proto, k: number): Uint8Array {
   const b = bytes(m, k)
@@ -118,24 +118,28 @@ export async function decode20(enc: Enc20, s: number, e: number, buf: BufferRead
 
       if (enc.compression) {
         // compressed flat buffers have to be read whole
-        const whole = decompress(enc.compression, await buf(enc.buffer, 0, Infinity), ctx)
+        const whole = decompress(enc.compression, await buf(enc.buffer, 0, Infinity, ctx.signal), ctx)
 
         return sliceFixed(whole, bits, s, n)
       }
 
-      if (bits === 1) return { bits, fixed: unpackBits(await buf(enc.buffer, s >> 3, (e + 7) >> 3), n, s & 7) }
+      if (bits === 1) return { bits, fixed: unpackBits(await buf(enc.buffer, s >> 3, (e + 7) >> 3, ctx.signal), n, s & 7) }
 
       const width = bits / 8
 
-      return sliceFixed(await buf(enc.buffer, s * width, e * width), bits, 0, n)
+      return sliceFixed(await buf(enc.buffer, s * width, e * width, ctx.signal), bits, 0, n)
     }
 
     case 'fsl': {
       // the items' validity is per item; row nulls come from a nullable wrapper around the list
-      const { valid, ...inner } = await decode20(enc.items, s * enc.dim, e * enc.dim, buf, ctx)
+      const { valid, allNull, ...inner } = await decode20(enc.items, s * enc.dim, e * enc.dim, buf, ctx)
       const block: Block = { ...inner, dim: enc.dim * (inner.dim ?? 1) }
 
-      if (valid) block.itemValid = valid
+      if ((valid || allNull) && inner.dim) unsupported('nested fixed-size lists with nulls inside')
+
+      // every item null: the rows themselves are still valid vectors
+      if (allNull) block.itemValid = new Uint8Array(n * enc.dim)
+      else if (valid) block.itemValid = valid
 
       return block
     }
@@ -145,7 +149,7 @@ export async function decode20(enc: Enc20, s: number, e: number, buf: BufferRead
       const per = (1024 * enc.bits) / 8
       const c0 = Math.floor(s / 1024)
       const c1 = Math.ceil(e / 1024)
-      const b = await buf(enc.buffer, c0 * per, c1 * per)
+      const b = await buf(enc.buffer, c0 * per, c1 * per, ctx.signal)
       const out = typedFor(enc.outBits, (c1 - c0) * 1024)
 
       for (let c = 0; c < c1 - c0; c++) {
@@ -166,7 +170,7 @@ export async function decode20(enc: Enc20, s: number, e: number, buf: BufferRead
 
     case 'bitpacked': {
       const from = Math.floor((s * enc.bits) / 8)
-      const b = await buf(enc.buffer, from, Math.ceil((e * enc.bits) / 8))
+      const b = await buf(enc.buffer, from, Math.ceil((e * enc.bits) / 8), ctx.signal)
 
       return { bits: enc.outBits, fixed: unpackPlain(b, enc.bits, enc.outBits, n, enc.signed, s * enc.bits - from * 8) }
     }
@@ -210,7 +214,7 @@ export async function decode20(enc: Enc20, s: number, e: number, buf: BufferRead
     }
 
     case 'packedstruct':
-      return decodePackedStruct(enc, s, e, buf)
+      return decodePackedStruct(enc, s, e, buf, ctx.signal)
     case 'constant':
       return { constant: enc.value }
     case 'list':
@@ -273,7 +277,7 @@ async function decodeBinary(enc: BinaryEnc, s: number, e: number, buf: BufferRea
         const a = base + offsets[i]
         const b = base + offsets[i + 1]
 
-        if (b - a <= ctx.maxInlineBytes) return b > a ? buf(bytesEnc.buffer, a, b) : new Uint8Array(0)
+        if (b - a <= ctx.maxInlineBytes) return b > a ? buf(bytesEnc.buffer, a, b, ctx.signal) : new Uint8Array(0)
 
         lazy.set(i, { byteLength: b - a, read: (signal) => buf(bytesEnc.buffer, a, b, signal) })
 
@@ -309,7 +313,7 @@ async function decodeBinary(enc: BinaryEnc, s: number, e: number, buf: BufferRea
 
 type PackedStructEnc = Extract<Enc20, { kind: 'packedstruct' }>
 
-async function decodePackedStruct(enc: PackedStructEnc, s: number, e: number, buf: BufferReader): Promise<Block> {
+async function decodePackedStruct(enc: PackedStructEnc, s: number, e: number, buf: BufferReader, signal: AbortSignal | undefined): Promise<Block> {
   // row-major: every row stores each fixed-width child back to back
   const n = e - s
 
@@ -324,7 +328,7 @@ async function decodePackedStruct(enc: PackedStructEnc, s: number, e: number, bu
   })
 
   const stride = widths.reduce((a, b) => a + b, 0)
-  const b = await buf(enc.buffer, s * stride, e * stride)
+  const b = await buf(enc.buffer, s * stride, e * stride, signal)
   const dv = new DataView(b.buffer, b.byteOffset, b.byteLength)
   const children: PackedChild[] = widths.map(() => new Array(n))
 

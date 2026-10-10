@@ -24,6 +24,8 @@ export function fileSource(dir: string): Source {
         const b = new Uint8Array(length)
         const { bytesRead } = await fh.read(b, 0, length, offset)
 
+        signal?.throwIfAborted()
+
         return b.subarray(0, bytesRead)
       } finally {
         await fh.close()
@@ -32,20 +34,28 @@ export function fileSource(dir: string): Source {
     async size(path, signal) {
       signal?.throwIfAborted()
 
-      return (await stat(join(dir, path))).size
+      const { size } = await stat(join(dir, path))
+
+      signal?.throwIfAborted()
+
+      return size
     },
     async list(sub, signal) {
       signal?.throwIfAborted()
 
       const entries = await readdir(join(dir, sub), { withFileTypes: true })
 
-      return Promise.all(
+      const out = await Promise.all(
         entries.map(async (e) => ({
           name: e.name,
           size: e.isFile() ? (await stat(join(dir, sub, e.name))).size : 0,
           type: e.isDirectory() ? ('directory' as const) : ('file' as const),
         })),
       )
+
+      signal?.throwIfAborted()
+
+      return out
     },
   }
 }

@@ -261,7 +261,7 @@ function decodeBlock(e: Enc21, bufs: Uint8Array[], n: number, ctx: DecodeContext
       const valid = e.validity ? unpackBits(bufs[cursor.i++], n * e.dim) : undefined
       const inner = decodeBlock(e.values, bufs, n * e.dim, ctx, cursor)
 
-      if (valid && inner.itemValid) unsupported('nested fixed-size lists with nulls at several levels')
+      if (valid && inner.dim) unsupported('nested fixed-size lists with nulls inside')
 
       const block: Block = { ...inner, dim: e.dim * (inner.dim ?? 1) }
 
@@ -873,8 +873,8 @@ function readFullZipSpan(l: FullZipLayout, data: Uint8Array, ctx: DecodeContext,
     })
 
     const elemBits = dim ? (dataBytes * 8) / dim : valueBits
-    const fixed = elemBits % 8 === 0 && elemBits <= 64 && elemBits !== 24 ? words(bytes, elemBits) : bytes
-    const block: Block = { bits: elemBits, fixed }
+    // when every item is null, only the validity bytes are stored
+    const block: Block = dataBytes ? { bits: elemBits, fixed: elemBits % 8 === 0 && elemBits <= 64 && elemBits !== 24 ? words(bytes, elemBits) : bytes } : {}
 
     if (dim) block.dim = dim
 

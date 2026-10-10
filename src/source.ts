@@ -275,7 +275,7 @@ export function cachedSource(source: Source, { tailSize = 64 * 1024, gap = 64 * 
     const tail = tails.get(path)
 
     if (tail) {
-      const t = await tail
+      const t = await abortable(tail, signal)
 
       if (offset >= t.start && offset + length <= t.start + t.bytes.byteLength) return t.bytes.subarray(offset - t.start, offset - t.start + length)
     }
