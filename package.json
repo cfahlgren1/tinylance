@@ -1,0 +1,59 @@
+{
+  "name": "tinylance",
+  "version": "0.0.0",
+  "description": "Read Lance datasets anywhere JavaScript runs. Zero dependencies.",
+  "license": "MIT",
+  "author": "Caleb Fahlgren",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/cfahlgren1/tinylance.git"
+  },
+  "keywords": [
+    "lance",
+    "lancedb",
+    "dataset",
+    "reader",
+    "browser",
+    "huggingface"
+  ],
+  "type": "module",
+  "sideEffects": false,
+  "files": [
+    "dist"
+  ],
+  "types": "./dist/node.d.ts",
+  "exports": {
+    ".": {
+      "browser": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "default": {
+        "types": "./dist/node.d.ts",
+        "default": "./dist/node.js"
+      }
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "test": "node --test 'test/*.test.ts'",
+    "test:browser": "node scripts/browser.mjs",
+    "typecheck": "tsc --noEmit",
+    "lint": "oxlint src test scripts",
+    "format": "oxfmt src test scripts",
+    "format:check": "oxfmt --check src test scripts",
+    "size": "node scripts/size.mjs",
+    "prepack": "npm run build"
+  },
+  "devDependencies": {
+    "@types/node": "24.19.2",
+    "esbuild": "0.28.2",
+    "oxfmt": "0.72.0",
+    "oxlint": "1.87.0",
+    "playwright": "1.64.0",
+    "typescript": "7.0.2"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}
