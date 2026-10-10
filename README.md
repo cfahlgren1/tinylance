@@ -4,11 +4,26 @@
 
 **Read [Lance](https://github.com/lance-format/lance) datasets anywhere JavaScript runs.** Browsers, Node, Bun, Deno and Workers, in 16 KB with zero dependencies.
 
+<a href="https://www.npmjs.com/package/tinylance"><img src="https://img.shields.io/npm/v/tinylance" alt="npm"></a>
 <img src="https://img.shields.io/badge/license-MIT-2ea44f" alt="MIT">
 <img src="https://img.shields.io/badge/gzip-16%20KB-orange" alt="16 KB gzip">
 <img src="https://img.shields.io/badge/dependencies-0-blue" alt="0 dependencies">
 
 </div>
+
+## Install
+
+```sh
+npm install tinylance        # or: pnpm add tinylance, bun add tinylance, deno add npm:tinylance
+```
+
+Node 22 or later. In a browser without a bundler, import it from a CDN:
+
+```html
+<script type="module">
+  import { lanceOpen, lanceRead } from 'https://esm.sh/tinylance'
+</script>
+```
 
 ## Use it
 
@@ -34,7 +49,23 @@ await db.tables() // [{ name: 'test', location: 'test.lance' }, { name: 'train',
 const train = await db.open('train')
 ```
 
-tinylance fetches only the byte ranges it needs. Opening a dataset takes 2 requests, and a page of 20 rows a few more. Pass `maxInlineBytes` and large values (videos, images) come back as lazy handles you `read()` when needed. Every call takes an `AbortSignal`.
+tinylance fetches only the byte ranges it needs. Opening a dataset takes 2 requests, and a page of 20 rows a few more.
+
+| `lanceRead` option | |
+| --- | --- |
+| `columns` | top-level columns to read (default: all) |
+| `offset`, `limit` | the rows to read; deleted rows don't count |
+| `maxInlineBytes` | values larger than this (videos, images) come back as lazy handles |
+| `signal` | an `AbortSignal` to cancel the read |
+| `onChunk` | called with each fragment's rows as soon as they're decoded |
+
+Large values and blob columns come back as lazy handles: `{ byteLength, read() }`.
+
+```js
+const [row] = await lanceRead(dataset, { columns: ['video'], limit: 1, maxInlineBytes: 1 << 20 })
+row.video.byteLength // 48213004
+const bytes = await row.video.read() // fetched only now
+```
 
 ## Why
 

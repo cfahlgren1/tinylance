@@ -36,4 +36,11 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: npm run size
-      - run: npm publish
+      - name: Publish unless this version is already on npm
+        run: |
+          version="$(node -p "require('./package.json').version")"
+          if npm view "tinylance@$version" version >/dev/null 2>&1; then
+            echo "tinylance@$version is already on npm, skipping"
+          else
+            npm publish
+          fi
