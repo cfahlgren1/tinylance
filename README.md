@@ -2,11 +2,11 @@
 
 # tinylance
 
-**Read [Lance](https://github.com/lance-format/lance) datasets anywhere JavaScript runs.** Browsers, Node, Bun, Deno and Workers, in 16 KB with zero dependencies.
+**Read [Lance](https://github.com/lance-format/lance) datasets anywhere JavaScript runs.** Browsers, Node, Bun, Deno and Workers, in 17 KB with zero dependencies.
 
 <a href="https://www.npmjs.com/package/tinylance"><img src="https://img.shields.io/npm/v/tinylance" alt="npm"></a>
 <img src="https://img.shields.io/badge/license-MIT-2ea44f" alt="MIT">
-<img src="https://img.shields.io/badge/gzip-16%20KB-orange" alt="16 KB gzip">
+<img src="https://img.shields.io/badge/gzip-17%20KB-orange" alt="17 KB gzip">
 <img src="https://img.shields.io/badge/dependencies-0-blue" alt="0 dependencies">
 
 </div>
@@ -71,7 +71,7 @@ const bytes = await row.video.read() // fetched only now
 
 |                    | Runs in the browser | Size                 | Dependencies    |
 | ------------------ | ------------------- | -------------------- | --------------- |
-| **tinylance**      | ✅                  | **16 KB** gzip | **0**           |
+| **tinylance**      | ✅                  | **17 KB** gzip | **0**           |
 | `@lancedb/lancedb` | ❌ (Node only)      | ~254 MB native       | native + Arrow  |
 
 Checked against pylance on the 176 Lance tables found on the Hugging Face Hub in October 2026: the first and a middle page of 20 rows match exactly on 173. The other three read without errors but were too large to diff. Opening takes a median of 2 requests, and a 20-row page 7 more.
