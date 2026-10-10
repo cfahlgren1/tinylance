@@ -66,7 +66,9 @@ export async function lanceRead(ds: LanceDataset, options: LanceReadOptions = {}
     )
   }
 
-  return (await Promise.all(tasks)).flat()
+  const results = await Promise.all(tasks)
+
+  return results.length === 1 ? results[0] : results.flat()
 }
 
 function columnField(ds: LanceDataset, name: string): LanceField {
@@ -110,9 +112,7 @@ async function readFragment(ds: LanceDataset, frag: LanceFragment, fields: reado
     const r: Row = {}
     const src = keep ? keep[i] : i
 
-    fields.forEach((f, k) => {
-      r[f.name] = cols[k][src]
-    })
+    for (let k = 0; k < fields.length; k++) r[fields[k].name] = cols[k][src]
     rows[i] = r
   }
 

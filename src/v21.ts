@@ -754,7 +754,7 @@ async function readMiniBlock(
     values.push(dict ? convertDict(block, dict, convert) : convert(block, ch.items))
   }
 
-  const vals = values.length === 1 ? values[0] : values.flat()
+  const vals = values.length === 1 ? values[0] : concatValues(values)
   const rep = reps.length ? concatU16(reps) : null
   const def = defs.length ? concatU16(defs) : null
   let rows: Value[]
@@ -838,6 +838,18 @@ function readFullZipSpan(l: FullZipLayout, data: Uint8Array, ctx: DecodeContext,
   const maxVisibleDef = maxVisibleDefOf(l.layers)
   const reps: number[] = []
   const defs: number[] = []
+
+  if (!hasRep && !l.bitsDef && valueBits !== undefined && !(l.value.kind === 'fsl' && l.value.validity)) {
+    const dim = l.value.kind === 'fsl' ? l.value.dim : 0
+    const elemBits = dim ? valueBits / dim : valueBits
+    const fixed = elemBits % 8 === 0 && elemBits <= 64 && elemBits !== 24 ? words(data, elemBits) : data
+    const block: Block = { bits: elemBits, fixed }
+
+    if (dim) block.dim = dim
+
+    return convert(block, data.byteLength / (valueBits / 8))
+  }
+
   const items: (Uint8Array | null)[] = []
   const lenBytes = (l.bitsPerOffset ?? 0) / 8
   const valueBytes = valueBits !== undefined ? valueBits / 8 : 0
@@ -1100,4 +1112,15 @@ function decodeValue(e: Enc21, v: Uint8Array, ctx: DecodeContext): Uint8Array {
   if (e.kind === 'fsst') return decodeValue(e.values, fsstDecode(v, e.table), ctx)
 
   return v
+}
+
+function concatValues(parts: Value[][]): Value[] {
+  const out = new Array<Value>(parts.reduce((n, p) => n + p.length, 0))
+  let offset = 0
+
+  for (const part of parts) {
+    for (let i = 0; i < part.length; i++) out[offset++] = part[i]
+  }
+
+  return out
 }

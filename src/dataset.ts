@@ -290,7 +290,9 @@ export function deletedRows(ds: LanceDataset, frag: LanceFragment, ctx: DecodeCo
   const path = `_deletions/${frag.id}-${d.readVersion}-${d.id}.${d.type === 'bitmap' ? 'bin' : 'arrow'}`
 
   return abortable(
-    memo(deletions, path, async () => parseDeletionFile(await source.read(path, 0, await source.size(path)), d.type, () => zstdFor(ds))),
+    memo(deletions, path, async () =>
+      parseDeletionFile(source.readAll ? await source.readAll(path) : await source.read(path, 0, await source.size(path)), d.type, () => zstdFor(ds)),
+    ),
     ctx.signal,
   )
 }

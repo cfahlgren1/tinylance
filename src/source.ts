@@ -7,6 +7,7 @@ export interface SourceEntry {
 }
 
 export interface Source {
+  readAll?(path: string, signal?: AbortSignal): Promise<Uint8Array>
   read(path: string, offset: number, length: number, signal?: AbortSignal): Promise<Uint8Array>
   size?(path: string, signal?: AbortSignal): Promise<number>
   list?(dir: string, signal?: AbortSignal): Promise<SourceEntry[]>
@@ -71,6 +72,17 @@ export function httpSource(url: string, options: HttpSourceOptions = {}): Source
   }
 
   return {
+    async readAll(path, signal) {
+      const init: RequestInit = { headers }
+
+      if (signal) init.signal = signal
+
+      const r = await f(`${base}/${path}`, init)
+
+      if (!r.ok) throw new Error(`HTTP ${r.status} reading ${base}/${path}`)
+
+      return new Uint8Array(await r.arrayBuffer())
+    },
     async read(path, offset, length, signal) {
       const r = await get(path, `bytes=${offset}-${offset + length - 1}`, signal)
 
@@ -278,6 +290,16 @@ export function cachedSource(source: Source, { tailSize = 64 * 1024, gap = 64 * 
       const t = await abortable(tail, signal)
 
       if (offset >= t.start && offset + length <= t.start + t.bytes.byteLength) return t.bytes.subarray(offset - t.start, offset - t.start + length)
+
+      if (length <= 1024 * 1024 && offset < t.start && offset + length > t.start && offset + length <= t.start + t.bytes.byteLength) {
+        const prefix = await read(path, offset, t.start - offset, signal)
+        const out = new Uint8Array(length)
+
+        out.set(prefix)
+        out.set(t.bytes.subarray(0, offset + length - t.start), t.start - offset)
+
+        return out
+      }
     }
 
     return new Promise((resolve, reject) => {
@@ -313,6 +335,8 @@ export function cachedSource(source: Source, { tailSize = 64 * 1024, gap = 64 * 
       return { ...t, size: fileSize }
     },
   }
+
+  if (source.readAll) cached.readAll = source.readAll.bind(source)
 
   if (source.list) cached.list = source.list.bind(source)
 

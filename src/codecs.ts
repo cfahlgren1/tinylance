@@ -312,6 +312,8 @@ export function fsstDecodeAll(offsets: ArrayLike<number>, bytes: Uint8Array, n: 
   const out = new Uint8Array((Number(offsets[n]) - Number(offsets[0])) * 8)
   const outOffsets = new Uint32Array(n + 1)
   const { lens, symbols } = table
+  const symbolWords = new DataView(symbols.buffer, symbols.byteOffset, symbols.byteLength)
+  const outputWords = new DataView(out.buffer)
   let o = 0
 
   for (let i = 0; i < n; i++) {
@@ -328,7 +330,9 @@ export function fsstDecodeAll(offsets: ArrayLike<number>, bytes: Uint8Array, n: 
       const l = lens[c]
       const s = c * 8
 
-      for (let k = 0; k < l; k++) out[o++] = symbols[s + k]
+      outputWords.setUint32(o, symbolWords.getUint32(s, true), true)
+      outputWords.setUint32(o + 4, symbolWords.getUint32(s + 4, true), true)
+      o += l
     }
   }
 
