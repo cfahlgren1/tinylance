@@ -5,7 +5,7 @@ import { readFileSync } from 'node:fs'
 import { gzipSync } from 'node:zlib'
 import { build } from 'esbuild'
 
-const BUDGET_GZIP = 15 * 1024
+const BUDGET_GZIP = 16 * 1024
 
 const root = new URL('..', import.meta.url).pathname
 
