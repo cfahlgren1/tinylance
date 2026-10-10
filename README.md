@@ -49,6 +49,8 @@ await db.tables() // [{ name: 'test', location: 'test.lance' }, { name: 'train',
 const train = await db.open('train')
 ```
 
+More in [examples/](examples): a [Node script](examples/node/read.mjs) and a [one-file browser page](examples/browser/index.html), both reading datasets on the Hub. CI runs them against the Hub on every push.
+
 tinylance fetches only the byte ranges it needs. Opening a dataset takes 2 requests, and a page of 20 rows a few more.
 
 | `lanceRead` option | |

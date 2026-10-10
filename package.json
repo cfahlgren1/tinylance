@@ -52,11 +52,12 @@
     "test": "node --test 'test/*.test.ts'",
     "test:browser": "node scripts/browser.ts",
     "typecheck": "tsc --noEmit",
-    "lint": "oxlint src test scripts",
-    "format": "oxfmt src test scripts",
-    "format:check": "oxfmt --check src test scripts",
+    "lint": "oxlint src test scripts examples",
+    "format": "oxfmt src test scripts examples",
+    "format:check": "oxfmt --check src test scripts examples",
     "size": "node scripts/size.mjs",
-    "prepack": "npm run build"
+    "prepack": "npm run build",
+    "test:examples": "node examples/node/read.mjs && node scripts/examples.ts"
   },
   "devDependencies": {
     "@oxlint/plugins": "1.87.0",

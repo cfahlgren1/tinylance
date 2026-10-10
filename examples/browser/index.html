@@ -1,0 +1,345 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>tinylance: Lance datasets in the browser</title>
+    <script type="importmap">
+      { "imports": { "tinylance": "https://esm.sh/tinylance@0.1", "tinylance/lancedb": "https://esm.sh/tinylance@0.1/lancedb" } }
+    </script>
+    <style>
+      :root {
+        --ink: #17181c;
+        --muted: #6b6f7b;
+        --line: #e6e7eb;
+        --accent: #ff6b00;
+        font-family:
+          ui-sans-serif,
+          system-ui,
+          -apple-system,
+          'Segoe UI',
+          sans-serif;
+        color: var(--ink);
+      }
+      body {
+        margin: 0 auto;
+        max-width: 1100px;
+        padding: 32px 20px 60px;
+      }
+      h1 {
+        font-size: 28px;
+        margin: 0;
+      }
+      h1 span {
+        color: var(--accent);
+      }
+      p.lede {
+        color: var(--muted);
+        margin: 6px 0 24px;
+      }
+      code,
+      input,
+      .mono {
+        font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+        font-size: 13px;
+      }
+      .examples {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+        margin-bottom: 12px;
+      }
+      button {
+        border: 1px solid var(--line);
+        background: #fff;
+        color: var(--ink);
+        border-radius: 999px;
+        padding: 6px 14px;
+        cursor: pointer;
+        font: inherit;
+        font-size: 14px;
+      }
+      button:hover,
+      button.active {
+        border-color: var(--accent);
+      }
+      form {
+        display: flex;
+        gap: 8px;
+        margin-bottom: 16px;
+      }
+      input {
+        flex: 1;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 8px 10px;
+      }
+      input[type='number'] {
+        flex: 0 0 130px;
+      }
+      form button {
+        border-radius: 8px;
+        background: var(--ink);
+        color: #fff;
+        border-color: var(--ink);
+      }
+      #status {
+        color: var(--muted);
+        font-size: 14px;
+        min-height: 20px;
+        margin-bottom: 10px;
+      }
+      #status.error {
+        color: #c62828;
+      }
+      .schema {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        margin-bottom: 14px;
+      }
+      .schema span {
+        color: var(--muted);
+        background: #f5f5f7;
+        border-radius: 6px;
+        padding: 3px 7px;
+        font-size: 12px;
+      }
+      .schema b {
+        color: var(--ink);
+      }
+      .scroll {
+        overflow-x: auto;
+        border: 1px solid var(--line);
+        border-radius: 10px;
+      }
+      table {
+        border-collapse: collapse;
+        width: 100%;
+        font-size: 13px;
+      }
+      th,
+      td {
+        text-align: left;
+        vertical-align: middle;
+        padding: 7px 12px;
+        border-bottom: 1px solid var(--line);
+        max-width: 260px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      tr:last-child td {
+        border-bottom: 0;
+      }
+      td.num,
+      th.num {
+        text-align: right;
+        font-variant-numeric: tabular-nums;
+      }
+      tr.link {
+        cursor: pointer;
+      }
+      tr.link:hover td {
+        background: #fff7f0;
+      }
+      th {
+        background: #fafafb;
+        font-weight: 600;
+        position: sticky;
+        top: 0;
+      }
+      td img {
+        display: block;
+        height: 40px;
+        image-rendering: pixelated;
+        border-radius: 4px;
+      }
+      .dim {
+        color: var(--muted);
+      }
+      a {
+        color: inherit;
+        text-decoration-color: var(--line);
+        text-underline-offset: 3px;
+      }
+      a:hover {
+        text-decoration-color: var(--accent);
+      }
+      footer {
+        margin-top: 28px;
+        color: var(--muted);
+        font-size: 13px;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>tiny<span>lance</span></h1>
+    <p class="lede">
+      Read Lance datasets on the Hugging Face Hub straight from the browser: only the byte ranges a page of rows needs, with
+      <a href="https://github.com/cfahlgren1/tinylance">a 17 KB library</a> and no server.
+    </p>
+
+    <div class="examples">
+      <button data-url="hf://datasets/lance-format/mnist-lance/data/train.lance">MNIST: images and embeddings</button>
+      <button data-url="hf://datasets/lance-format/fineweb-edu/data/train.lance" data-offset="1000000000">FineWeb-Edu: 1.5 billion rows of text</button>
+      <button data-lancedb="hf://datasets/lance-format/mnist-lance/data">LanceDB: list a database's tables</button>
+    </div>
+
+    <form id="form">
+      <input id="url" placeholder="hf://datasets/owner/name/path/to/table.lance" aria-label="dataset URL" />
+      <input id="offset" type="number" min="0" value="0" aria-label="first row" />
+      <button type="submit">Read 10 rows</button>
+    </form>
+
+    <div id="status"></div>
+    <div id="schema" class="schema"></div>
+    <div class="scroll"><table id="rows"></table></div>
+
+    <footer>
+      <code>npm install tinylance</code> · <a href="https://github.com/cfahlgren1/tinylance">GitHub</a> ·
+      <a href="https://www.npmjs.com/package/tinylance">npm</a>
+    </footer>
+
+    <script type="module">
+      import { hfSource, lanceOpen, lanceRead } from 'tinylance'
+      import { lancedbConnect } from 'tinylance/lancedb'
+
+      const $ = (id) => document.getElementById(id)
+      const PAGE = 10
+      let requests = 0
+      let controller
+
+      // count every request so the page shows how little it fetches
+      const countingFetch = (input, init) => {
+        requests++
+        return fetch(input, init)
+      }
+
+      const source = (url) => hfSource(url, { fetch: countingFetch })
+
+      function status(text, error = false) {
+        $('status').textContent = text
+        $('status').className = error ? 'error' : ''
+      }
+
+      /** a short, readable rendering of any value tinylance returns */
+      function render(value) {
+        if (value === null || value === undefined) return '<span class="dim">null</span>'
+
+        if (value instanceof Uint8Array) {
+          const png = value[0] === 0x89 && value[1] === 0x50
+          const jpeg = value[0] === 0xff && value[1] === 0xd8
+
+          if (png || jpeg) return `<img alt="" src="${URL.createObjectURL(new Blob([value], { type: png ? 'image/png' : 'image/jpeg' }))}">`
+
+          return `<span class="dim">${value.length} bytes</span>`
+        }
+
+        if (ArrayBuffer.isView(value))
+          return `<span class="dim">[${Array.from(value.subarray(0, 3), (x) => Number(x).toFixed(3)).join(', ')}, … ${value.length} values]</span>`
+        if (value instanceof Date) return value.toISOString()
+        if (typeof value === 'object' && 'read' in value) return `<span class="dim">lazy, ${value.byteLength ?? '?'} bytes</span>`
+
+        if (isNumber(value)) return typeof value === 'number' && !Number.isInteger(value) ? value.toFixed(3) : value.toLocaleString()
+
+        const text = typeof value === 'object' ? JSON.stringify(value, (_, x) => (typeof x === 'bigint' ? String(x) : x)) : String(value)
+
+        return escape(text.slice(0, 300))
+      }
+
+      const isNumber = (v) => typeof v === 'number' || typeof v === 'bigint'
+      const escape = (text) => text.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c])
+
+      /** a table of rows; `onRow` makes rows clickable */
+      function table(columns, rows, onRow) {
+        // headers line up with their column's values
+        const numeric = columns.map((c) => rows.length > 0 && rows.every((r) => r[c] === null || isNumber(r[c])))
+        const head = `<tr>${columns.map((c, k) => `<th class="${numeric[k] ? 'num' : ''}">${c}</th>`).join('')}</tr>`
+        const cell = (v) => {
+          const title = typeof v === 'string' && v.length > 40 ? ` title="${escape(v.slice(0, 2000))}"` : ''
+
+          return `<td class="${isNumber(v) ? 'num' : ''}"${title}>${render(v)}</td>`
+        }
+        const body = rows.map((r, i) => `<tr class="${onRow ? 'link' : ''}" data-i="${i}">${columns.map((c) => cell(r[c])).join('')}</tr>`).join('')
+
+        $('rows').innerHTML = head + body
+
+        if (onRow) for (const tr of $('rows').querySelectorAll('tr.link')) tr.addEventListener('click', () => onRow(rows[Number(tr.dataset.i)]))
+      }
+
+      async function readDataset(url, offset) {
+        controller?.abort()
+        controller = new AbortController()
+        requests = 0
+        status(`Opening ${url}…`)
+
+        const started = performance.now()
+        const dataset = await lanceOpen(source(url), { signal: controller.signal })
+        const rows = await lanceRead(dataset, { offset, limit: PAGE, maxInlineBytes: 1 << 20, signal: controller.signal })
+        const ms = Math.round(performance.now() - started)
+
+        $('schema').innerHTML = dataset.schema.map((f) => `<span class="mono"><b>${f.name}</b> ${f.type}</span>`).join('')
+        table(
+          dataset.schema.map((f) => f.name),
+          rows,
+        )
+        status(
+          `${dataset.numRows.toLocaleString()} rows · Lance ${dataset.format} · rows ${offset.toLocaleString()}–${(offset + rows.length - 1).toLocaleString()} · ${ms} ms · ${requests} requests`,
+        )
+        document.body.dataset.state = 'ready'
+      }
+
+      async function listDatabase(url) {
+        requests = 0
+        status(`Listing ${url}…`)
+
+        const db = lancedbConnect(source(url))
+        const tables = await db.tables()
+        const details = await Promise.all(tables.map(async (t) => ({ ...t, rows: (await db.open(t.name)).numRows })))
+
+        $('url').value = url
+        $('offset').value = 0
+        $('schema').innerHTML = ''
+        table(['name', 'location', 'rows'], details, (t) => {
+          $('url').value = `${url}/${t.location}`
+          $('form').requestSubmit()
+        })
+        status(`${tables.length} tables · ${requests} requests · click one to read it`)
+        document.body.dataset.state = 'ready'
+      }
+
+      async function run(task) {
+        document.body.dataset.state = 'loading'
+
+        try {
+          await task()
+        } catch (error) {
+          if (error.name === 'AbortError') return
+
+          status(error.message, true)
+          document.body.dataset.state = 'error'
+        }
+      }
+
+      $('form').addEventListener('submit', (event) => {
+        event.preventDefault()
+        run(() => readDataset($('url').value.trim(), Number($('offset').value) || 0))
+      })
+
+      for (const button of document.querySelectorAll('.examples button')) {
+        button.addEventListener('click', () => {
+          document.querySelectorAll('.examples button').forEach((b) => b.classList.toggle('active', b === button))
+
+          if (button.dataset.lancedb) return run(() => listDatabase(button.dataset.lancedb))
+
+          $('url').value = button.dataset.url
+          $('offset').value = button.dataset.offset ?? 0
+          $('form').requestSubmit()
+        })
+      }
+
+      document.querySelector('.examples button').click()
+    </script>
+  </body>
+</html>

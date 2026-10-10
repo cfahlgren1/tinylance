@@ -138,7 +138,8 @@ export function hfSource(url: string, options: HfSourceOptions = {}): Source {
     ...http,
     async list(sub, signal) {
       const out: SourceEntry[] = []
-      let next: string | null = `${endpoint}/api/${kind}/${repo}/tree/${revision}/${prefix}${sub}`
+      // no trailing slash: the Hub redirects it, and browsers block that redirect cross-origin
+      let next: string | null = `${endpoint}/api/${kind}/${repo}/tree/${revision}/${prefix}${sub}`.replace(/\/$/, '')
 
       while (next) {
         const init: RequestInit = { headers }

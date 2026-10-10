@@ -48,6 +48,9 @@ test('works over HTTP against a Hub-like server', async () => {
     numbers.map((r) => r.n),
     [1n, 2n, 3n, 4n],
   )
+  // listing the database root must not end in a slash: the Hub redirects that, and browsers
+  // block the redirect for cross-origin requests
+  assert.ok(!hub.log.some((line) => /\/tree\/main\/\S*\/(\s|$)/.test(line)), hub.log.join('\n'))
 })
 
 test('unknown tables fail with a clear error', async () => {
