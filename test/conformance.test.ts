@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { lanceOpen, lanceRead } from '../src/node.ts'
-import { datasets, expectedRows, normalizeRows } from './helpers.ts'
+import { datasets, expectedRows, normalizeRows, resolveLazy } from './helpers.ts'
 
 for (const { scenario, version, dir } of datasets) {
   test(`${scenario} v${version} matches pylance`, async () => {
@@ -11,6 +11,6 @@ for (const { scenario, version, dir } of datasets) {
 
     assert.equal(ds.numRows, expected.length)
     assert.equal(ds.format, version)
-    assert.deepEqual(normalizeRows(await lanceRead(ds)), expected)
+    assert.deepEqual(normalizeRows(await resolveLazy(await lanceRead(ds))), expected)
   })
 }

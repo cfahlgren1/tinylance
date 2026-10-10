@@ -7,7 +7,7 @@ import type { FileMeta, Page } from './file.ts'
 import { STRUCT_NULL } from './repdef.ts'
 import { decode20 } from './v20.ts'
 import type { BufferReader } from './v20.ts'
-import { readPage21 } from './v21.ts'
+import { blobValues, readPage21 } from './v21.ts'
 import type { PageIO } from './v21.ts'
 import type { Block, Convert, DecodeContext, LazyValue, Row, Value } from './types.ts'
 
@@ -27,7 +27,12 @@ export interface LanceReadOptions {
 
 /** Read rows of the selected columns. */
 export async function lanceRead(ds: LanceDataset, options: LanceReadOptions = {}): Promise<Row[]> {
+  options.signal?.throwIfAborted()
+
   const fields = options.columns ? options.columns.map((c) => columnField(ds, c)) : ds.schema
+
+  for (const f of fields)
+    if (f.metadata['ARROW:extension:name'] === 'lance.blob.v2') throw new Error(`column "${f.name}" uses Lance blob v2, which tinylance can't read yet`)
 
   const ctx: DecodeContext = {
     zstd: stateOf(ds).decompressors.zstd,
@@ -40,6 +45,8 @@ export async function lanceRead(ds: LanceDataset, options: LanceReadOptions = {}
   const rowStart = Math.max(0, options.offset ?? 0)
   const rowEnd = Math.min(ds.numRows, options.limit === undefined ? ds.numRows : rowStart + Math.max(0, options.limit))
   const tasks: Promise<Row[]>[] = []
+
+  if (rowEnd <= rowStart) return []
   let at = 0
 
   for (const frag of ds.fragments) {
@@ -59,8 +66,6 @@ export async function lanceRead(ds: LanceDataset, options: LanceReadOptions = {}
       }),
     )
   }
-
-  options.signal?.throwIfAborted()
 
   return (await Promise.all(tasks)).flat()
 }
@@ -216,7 +221,8 @@ async function readColumn(ds: LanceDataset, meta: FileMeta, column: number, s: n
     const enc = page.encoding
 
     if (enc.v === 21) parts.push(readPage21(page, enc.layout, ls, le, io, ctx, convert))
-    else if (enc.v === 20) parts.push(decode20(enc.enc, ls, le, bufferReader(ds, meta, column, page), ctx).then((b) => blockToValues(b, le - ls, convert)))
+    else if (enc.v === 20)
+      parts.push(decode20(enc.enc, ls, le, bufferReader(ds, meta, column, page, ctx), ctx).then((b) => blockToValues(b, le - ls, convert, io)))
     else parts.push(Promise.resolve(new Array<Value>(le - ls).fill(null)))
   }
 
@@ -225,11 +231,11 @@ async function readColumn(ds: LanceDataset, meta: FileMeta, column: number, s: n
   return res.length === 1 ? res[0] : res.flat()
 }
 
-function bufferReader(ds: LanceDataset, meta: FileMeta, column: number, page: Page): BufferReader {
+function bufferReader(ds: LanceDataset, meta: FileMeta, column: number, page: Page, ctx: DecodeContext): BufferReader {
   const source = stateOf(ds).source
   const col = meta.columns[column]
 
-  return (ref, from, to, signal) => {
+  return (ref, from, to, signal = ctx.signal) => {
     const [off, size] =
       ref.type === 0 ? [page.offsets[ref.index], page.sizes[ref.index]] : ref.type === 1 ? col.buffers[ref.index] : meta.globalBuffers[ref.index]
 
@@ -239,22 +245,17 @@ function bufferReader(ds: LanceDataset, meta: FileMeta, column: number, page: Pa
   }
 }
 
-function blockToValues(block: Block, n: number, convert: Convert): Value[] {
+function blockToValues(block: Block, n: number, convert: Convert, io: PageIO): Value[] {
   if (block.allNull) return new Array<Value>(n).fill(null)
 
-  if (block.packed) {
-    // 2.0 blob columns store (position, size) descriptors; values live elsewhere in the file
-    const [pos, size] = block.packed
-
-    return pos.map((p, i) => ({ position: Number(p), size: Number(size[i]) }))
-  }
+  if (block.packed) return blobValues(block, n, io)
 
   let vals: Value[]
 
   if (block.dictIndices && block.items) {
     const items = block.items
     const count = items.offsets ? items.offsets.length - 1 : (items.fixed?.length ?? 0)
-    const decoded = blockToValues(items, count, convert)
+    const decoded = blockToValues(items, count, convert, io)
 
     vals = toNumbers(block.dictIndices).map((k) => (k === 0 ? null : decoded[k - 1]))
   } else {
@@ -299,7 +300,7 @@ async function readList20(
     if (pe > s && ps < e) {
       const ls = Math.max(s, ps) - ps
       const le = Math.min(e, pe) - ps
-      const block = await decode20(list.offsets, Math.max(0, ls - 1), le, bufferReader(ds, meta, column, page), ctx)
+      const block = await decode20(list.offsets, Math.max(0, ls - 1), le, bufferReader(ds, meta, column, page, ctx), ctx)
 
       if (!block.fixed) throw new Error('list page has no offsets')
 
@@ -322,8 +323,15 @@ async function readList20(
 
   if (!lists.length) return []
 
-  const lo = Math.min(...lists.map((l) => l.start))
-  const hi = Math.max(...lists.map((l) => l.end))
+  // a loop, not Math.min(...), which overflows the stack on large reads
+  let lo = Infinity
+  let hi = -Infinity
+
+  for (const l of lists) {
+    lo = Math.min(lo, l.start)
+    hi = Math.max(hi, l.end)
+  }
+
   const items = hi > lo ? await readField(ds, frag, item, lo, hi, ctx, 0) : []
 
   return lists.map((l) => (l.valid ? items.slice(l.start - lo, l.end - lo) : null))

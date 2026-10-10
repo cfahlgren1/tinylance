@@ -113,6 +113,47 @@ def long_lists(n=4000):
     })
 
 
+def edge(n=N):
+    # cases that broke earlier versions: negative timestamps and constant pages
+    return pa.table({
+        "ts_neg": pa.array([[-86_400_000, -1, 0, 1][i % 4] for i in range(n)], pa.timestamp("ms")),
+        "const_fsb": pa.array([b"abcd"] * n, pa.binary(4)),
+        "const_vec": pa.array([[1.0, 2.0, 3.0]] * n, pa.list_(pa.float32(), 3)),
+    })
+
+
+def null_structs(n=N):
+    # struct nulls need format 2.1 or later
+    st = pa.struct([("x", pa.int32()), ("y", pa.string())])
+    return pa.table({
+        "nested_struct": pa.array(
+            [None if i % 7 == 0 else {"a": None if i % 3 == 0 else {"x": i, "y": "a"}, "b": i} for i in range(n)],
+            pa.struct([("a", st), ("b", pa.int32())]),
+        ),
+        "list_struct": pa.array([None if i % 7 == 0 else [{"x": i, "y": "a"}, None, {"x": None, "y": None}][: i % 4] for i in range(n)], pa.list_(st)),
+    })
+
+
+def nullable_vectors(n=300):
+    # small vectors use mini-block pages, wide ones full-zip; both with null rows and null items
+    r = rng(7)
+    wide = r.standard_normal((n, 128)).astype(np.float32).tolist()
+    return pa.table({
+        "null_rows": pa.array([None if i % 3 == 0 else [float(i), 2.0, 3.0] for i in range(n)], pa.list_(pa.float32(), 3)),
+        "null_items": pa.array([[float(i), None, 3.0] for i in range(n)], pa.list_(pa.float32(), 3)),
+        "wide_null_rows": pa.array([None if i % 4 == 0 else wide[i] for i in range(n)], pa.list_(pa.float32(), 128)),
+        "wide_null_items": pa.array([[None if (i + k) % 9 == 0 else x for k, x in enumerate(wide[i])] for i in range(n)], pa.list_(pa.float32(), 128)),
+    })
+
+
+def blob_files(n=12):
+    # "lance-encoding:blob" columns keep values out of line in the data file (blob v1 in 2.0 / 2.1)
+    r = rng(8)
+    values = [None if i == 5 else b"" if i == 7 else bytes(r.integers(0, 256, int(r.integers(10, 9000)), dtype=np.uint8)) for i in range(n)]
+    schema = pa.schema([pa.field("id", pa.int64()), pa.field("blob", pa.large_binary(), metadata={"lance-encoding:blob": "true"})])
+    return pa.table({"id": pa.array(np.arange(n, dtype=np.int64)), "blob": pa.array(values, pa.large_binary())}, schema=schema)
+
+
 def zstd_strings():
     meta = {b"lance-encoding:compression": b"zstd"}
     t = strings()
@@ -148,12 +189,23 @@ def write(name, table, version, **kw):
     return path
 
 
+def table_rows(ds):
+    rows = ds.to_table().to_pylist()
+    # blob columns read back as descriptors; record the bytes they point at instead
+    for field in ds.schema:
+        if field.metadata and field.metadata.get(b"lance-encoding:blob") == b"true":
+            blobs = ds.take_blobs(field.name, indices=list(range(len(rows))))
+            for row, blob in zip(rows, blobs):
+                row[field.name] = blob.readall() if blob is not None else None
+    return rows
+
+
 def snapshot(name, paths):
     """Every format version of a scenario must read back identically; store that output once."""
     expected = None
     for path in paths:
         ds = lance.dataset(path)
-        rows = json.dumps([{k: encode(v) for k, v in row.items()} for row in ds.to_table().to_pylist()], separators=(",", ":"))
+        rows = json.dumps([{k: encode(v) for k, v in row.items()} for row in table_rows(ds)], separators=(",", ":"))
         if expected is not None and rows != expected:
             raise RuntimeError(f"{path} reads back differently from the other versions of {name}")
         expected = rows
@@ -171,6 +223,12 @@ def main():
         snapshot(name, [write(name, table, v) for v in VERSIONS])
 
     snapshot("zstd", [write("zstd", zstd_strings(), v) for v in ["2.1", "2.2"]])
+    snapshot("edge", [write("edge", edge(), v) for v in VERSIONS])
+    snapshot("structs", [write("structs", null_structs(), v) for v in ["2.1", "2.2"]])
+    snapshot("nullvectors", [write("nullvectors", nullable_vectors(), v) for v in VERSIONS])
+    snapshot("blobfiles", [write("blobfiles", blob_files(), v) for v in ["2.0", "2.1"]])
+    # 2.2 writes blob columns as blob v2, which tinylance does not read yet; kept to test the error
+    write("blobv2", blob_files(), "2.2")
 
     # several fragments and versions, with both deletion file kinds. Lance switches from an Arrow
     # list to a Roaring bitmap above 5,000 deleted rows in one fragment.

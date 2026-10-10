@@ -15,7 +15,9 @@ export * from './index.ts'
 /** A dataset directory on the local filesystem. */
 export function fileSource(dir: string): Source {
   return {
-    async read(path, offset, length) {
+    async read(path, offset, length, signal) {
+      signal?.throwIfAborted()
+
       const fh = await open(join(dir, path))
 
       try {
@@ -27,10 +29,14 @@ export function fileSource(dir: string): Source {
         await fh.close()
       }
     },
-    async size(path) {
+    async size(path, signal) {
+      signal?.throwIfAborted()
+
       return (await stat(join(dir, path))).size
     },
-    async list(sub) {
+    async list(sub, signal) {
+      signal?.throwIfAborted()
+
       const entries = await readdir(join(dir, sub), { withFileTypes: true })
 
       return Promise.all(

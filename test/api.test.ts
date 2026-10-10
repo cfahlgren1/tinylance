@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { fileSource, lanceOpen, lanceRead, readRows } from '../src/node.ts'
-import type { LazyValue, Value } from '../src/node.ts'
+import type { LazyValue, Source, Value } from '../src/node.ts'
 import { expectedRows, FIXTURES, normalizeRows } from './helpers.ts'
 
 const fixture = (name: string): string => join(FIXTURES, name)
@@ -60,6 +60,10 @@ test('offset and limit are clamped to the dataset', async () => {
   assert.equal((await lanceRead(ds, { offset: 1995, limit: 100 })).length, 5)
   assert.equal((await lanceRead(ds, { offset: 5000 })).length, 0)
   assert.equal((await lanceRead(ds, { limit: 0 })).length, 0)
+
+  const withDeletions = await lanceOpen(fixture('deletions-v2.0.lance'))
+
+  assert.equal((await lanceRead(withDeletions, { offset: 10, limit: 0 })).length, 0)
 })
 
 test('onChunk reports each fragment as it is decoded', async () => {
@@ -88,7 +92,7 @@ for (const version of ['2.0', '2.1', '2.2']) {
     const bytes = await image.read()
 
     assert.deepEqual({ $bytes: bytes.length, sha1: createHash('sha1').update(bytes).digest('hex') }, expected)
-    assert.equal(image.byteLength >= bytes.length, true)
+    assert.equal(image.byteLength, bytes.length)
   })
 }
 
@@ -98,4 +102,51 @@ test('unknown columns and missing datasets fail with clear errors', async () => 
   await assert.rejects(lanceRead(ds, { columns: ['nope'] }), /no column "nope"/)
   await assert.rejects(lanceOpen(fixture('does-not-exist.lance')), /ENOENT/)
   await assert.rejects(lanceOpen(fixture('scalars-v2.1.lance'), { version: 99 }), /version 99 not found/)
+})
+
+test('blob columns come back as lazy values that read their bytes', async () => {
+  for (const version of ['2.0', '2.1']) {
+    const rows = await readRows(fixture(`blobfiles-v${version}.lance`), { columns: ['blob'] })
+    const expected = expectedRows('blobfiles')
+
+    for (const [i, { blob }] of rows.entries()) {
+      if (expected[i].blob === null) {
+        assert.equal(blob, null)
+        continue
+      }
+
+      assert.ok(isLazy(blob))
+
+      const bytes = await blob.read()
+
+      assert.equal(blob.byteLength, bytes.length)
+      assert.deepEqual({ $bytes: bytes.length, sha1: createHash('sha1').update(bytes).digest('hex') }, expected[i].blob)
+    }
+  }
+})
+
+test('blob v2 columns fail with a clear error instead of returning empty values', async () => {
+  const ds = await lanceOpen(fixture('blobv2-v2.2.lance'))
+
+  await assert.rejects(lanceRead(ds), /column "blob" uses Lance blob v2/)
+  assert.equal((await lanceRead(ds, { columns: ['id'] })).length, 12)
+})
+
+test('a failed request is retried by the next read instead of being cached', async () => {
+  const files = fileSource(fixture('deletions-v2.1.lance'))
+  let failures = 1
+
+  const flaky: Source = {
+    ...files,
+    size: async (path) => {
+      if (path.startsWith('_deletions/') && failures-- > 0) throw new Error('temporary failure')
+
+      return files.size?.(path) ?? 0
+    },
+  }
+
+  const ds = await lanceOpen(flaky)
+
+  await assert.rejects(lanceRead(ds), /temporary failure/)
+  assert.equal((await lanceRead(ds)).length, ds.numRows)
 })

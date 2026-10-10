@@ -151,6 +151,36 @@ interface Pending {
 }
 
 /**
+ * Wait for shared work on behalf of one caller: the caller's signal stops its wait, not the work,
+ * so cancelling one read never fails another read sharing the same request.
+ */
+export function abortable<T>(work: Promise<T>, signal: AbortSignal | undefined): Promise<T> {
+  if (!signal) return work
+
+  signal.throwIfAborted()
+
+  return new Promise((resolve, reject) => {
+    const onAbort = (): void => reject(signal.reason)
+
+    signal.addEventListener('abort', onAbort, { once: true })
+    work.then(resolve, reject).finally(() => signal.removeEventListener('abort', onAbort))
+  })
+}
+
+/** cache a promise per key; failed promises are evicted so a later call can retry */
+export function memo<T>(cache: Map<string, Promise<T>>, key: string, make: () => Promise<T>): Promise<T> {
+  let p = cache.get(key)
+
+  if (!p) {
+    p = make()
+    cache.set(key, p)
+    p.catch(() => cache.delete(key))
+  }
+
+  return p
+}
+
+/**
  * Adds a per-file tail cache and merges reads issued in the same tick into fewer requests:
  * ranges in the same file that overlap or sit within `gap` bytes of each other become one read.
  */
@@ -167,6 +197,12 @@ export function cachedSource(source: Source, { tailSize = 64 * 1024, gap = 64 * 
     const groups = new Map<string, Map<AbortSignal | undefined, Pending[]>>()
 
     for (const q of batch) {
+      // reads cancelled while queued never go out
+      if (q.signal?.aborted) {
+        q.reject(q.signal.reason)
+        continue
+      }
+
       const bySignal = groups.get(q.path) ?? new Map<AbortSignal | undefined, Pending[]>()
       const list = bySignal.get(q.signal) ?? []
 
@@ -213,6 +249,8 @@ export function cachedSource(source: Source, { tailSize = 64 * 1024, gap = 64 * 
   }
 
   async function read(path: string, offset: number, length: number, signal?: AbortSignal): Promise<Uint8Array> {
+    signal?.throwIfAborted()
+
     if (length === 0) return new Uint8Array(0)
 
     const tail = tails.get(path)
@@ -229,16 +267,16 @@ export function cachedSource(source: Source, { tailSize = 64 * 1024, gap = 64 * 
     })
   }
 
+  // sizes and tails are shared by every reader of the dataset, so they run without a caller's signal
   function size(path: string, signal?: AbortSignal): Promise<number> {
-    let s = sizes.get(path)
+    const get = source.size?.bind(source)
 
-    if (!s) {
-      if (!source.size) throw new Error(`cannot get the size of ${path}: the source has no size()`)
-      s = source.size(path, signal)
-      sizes.set(path, s)
-    }
+    if (!get) return Promise.reject(new Error(`cannot get the size of ${path}: the source has no size()`))
 
-    return s
+    return abortable(
+      memo(sizes, path, () => get(path)),
+      signal,
+    )
   }
 
   const cached: CachedSource = {
@@ -246,16 +284,14 @@ export function cachedSource(source: Source, { tailSize = 64 * 1024, gap = 64 * 
     size,
     async tail(path, knownSize, signal) {
       const fileSize = knownSize ?? (await size(path, signal))
-      let t = tails.get(path)
+      const start = Math.max(0, fileSize - tailSize)
 
-      if (!t) {
-        const start = Math.max(0, fileSize - tailSize)
-        t = read(path, start, fileSize - start, signal).then((bytes) => ({ start, bytes }))
-        tails.set(path, t)
-        t.catch(() => tails.delete(path))
-      }
+      const t = await abortable(
+        memo(tails, path, async () => ({ start, bytes: await read(path, start, fileSize - start) })),
+        signal,
+      )
 
-      return { ...(await t), size: fileSize }
+      return { ...t, size: fileSize }
     },
   }
 

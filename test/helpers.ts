@@ -1,9 +1,9 @@
 // Shared test helpers: fixture discovery and the comparison format written by scripts/fixtures.py.
 import { createHash } from 'node:crypto'
-import { readdirSync, readFileSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { gunzipSync } from 'node:zlib'
-import type { Row, Value } from '../src/node.ts'
+import type { LazyValue, Row, Value } from '../src/node.ts'
 
 export const FIXTURES = join(import.meta.dirname, 'fixtures')
 
@@ -12,7 +12,8 @@ export const datasets = readdirSync(FIXTURES)
   .flatMap((name) => {
     const m = /^(.+)-v(\d\.\d)\.lance$/.exec(name)
 
-    return m ? [{ scenario: m[1], version: m[2], dir: join(FIXTURES, name) }] : []
+    // datasets without an expected output (blobv2) exist only to test errors
+    return m && existsSync(join(FIXTURES, `${m[1]}.expected.json.gz`)) ? [{ scenario: m[1], version: m[2], dir: join(FIXTURES, name) }] : []
   })
   .sort((a, b) => a.dir.localeCompare(b.dir))
 
@@ -63,6 +64,15 @@ export function normalize(v: Value): ExpectedValue {
   if (v instanceof Object && !('read' in v) && !('position' in v)) return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, normalize(x)]))
 
   return String(v)
+}
+
+const isLazy = (v: Value): v is LazyValue => v instanceof Object && 'read' in v
+
+/** replace every top-level lazy value with the bytes it reads */
+export async function resolveLazy(rows: Row[]): Promise<Row[]> {
+  return Promise.all(
+    rows.map(async (row) => Object.fromEntries(await Promise.all(Object.entries(row).map(async ([k, v]) => [k, isLazy(v) ? await v.read() : v])))),
+  )
 }
 
 export const normalizeRows = (rows: Row[]): ExpectedValue[] => rows.map((r) => normalize(r))

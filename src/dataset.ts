@@ -4,7 +4,7 @@ import { readFileMetadata } from './file.ts'
 import type { FileMeta } from './file.ts'
 import { all, bytes, decode, int32, msg, num, packed, str, u64 } from './proto.ts'
 import type { Proto } from './proto.ts'
-import { cachedSource } from './source.ts'
+import { abortable, cachedSource, memo } from './source.ts'
 import type { CachedSource, Source } from './source.ts'
 import type { DecodeContext, Decompressors } from './types.ts'
 
@@ -65,7 +65,8 @@ export interface DatasetState {
   source: CachedSource
   decompressors: Decompressors
   files: Map<string, Promise<FileMeta>>
-  deletions: Map<number, Promise<Uint32Array>>
+  /** by deletion file path */
+  deletions: Map<string, Promise<Uint32Array>>
 }
 
 const states = new WeakMap<LanceDataset, DatasetState>()
@@ -80,6 +81,8 @@ export function stateOf(ds: LanceDataset): DatasetState {
 
 /** Open a dataset: usually one listing and one range read of the manifest. */
 export async function openDataset(source: Source, options: LanceOpenOptions = {}): Promise<LanceDataset> {
+  options.signal?.throwIfAborted()
+
   const cached = cachedSource(source)
   const { path, size } = await findManifest(cached, options.version, options.signal)
   const ds = await readManifest(cached, path, size, options.signal)
@@ -119,6 +122,8 @@ async function findManifest(
   if (v === undefined) {
     const hint = await source.read('_versions/latest_version_hint.json', 0, 1024, signal).catch(() => null)
 
+    signal?.throwIfAborted()
+
     if (!hint) throw new Error('cannot list _versions/ and there is no latest_version_hint.json; pass { version }')
 
     const parsed: { version: number } = JSON.parse(utf8.decode(hint).replace(/\0+$/, ''))
@@ -128,6 +133,8 @@ async function findManifest(
   for (const name of [`${U64_MAX - BigInt(v)}`.padStart(20, '0'), String(v)]) {
     const path = `_versions/${name}.manifest`
     const size = await source.size(path, signal).catch(() => null)
+
+    signal?.throwIfAborted()
 
     if (size !== null) return { path, size }
   }
@@ -239,18 +246,17 @@ function timestampOf(t: Proto | undefined): Date | undefined {
   return t ? new Date(num(t, 1) * 1000 + Math.floor(num(t, 2) / 1e6)) : undefined
 }
 
+// file metadata and deletion files are shared by every read of the dataset: they are fetched
+// without a caller's signal, and each caller's signal only stops its own wait
+
 export function fileMeta(ds: LanceDataset, file: LanceDataFile, ctx: DecodeContext): Promise<FileMeta> {
   const state = stateOf(ds)
   const path = `data/${file.path}`
-  let meta = state.files.get(path)
 
-  if (!meta) {
-    meta = readFileMetadata(state.source, path, file.size, ctx.signal)
-    state.files.set(path, meta)
-    meta.catch(() => state.files.delete(path))
-  }
-
-  return meta
+  return abortable(
+    memo(state.files, path, () => readFileMetadata(state.source, path, file.size)),
+    ctx.signal,
+  )
 }
 
 /** sorted physical row offsets deleted from a fragment (empty if none) */
@@ -259,16 +265,11 @@ export function deletedRows(ds: LanceDataset, frag: LanceFragment, ctx: DecodeCo
 
   if (!d) return Promise.resolve(new Uint32Array(0))
 
-  const state = stateOf(ds)
-  let rows = state.deletions.get(frag.id)
+  const { source, deletions, decompressors } = stateOf(ds)
+  const path = `_deletions/${frag.id}-${d.readVersion}-${d.id}.${d.type === 'bitmap' ? 'bin' : 'arrow'}`
 
-  if (!rows) {
-    const path = `_deletions/${frag.id}-${d.readVersion}-${d.id}.${d.type === 'bitmap' ? 'bin' : 'arrow'}`
-
-    rows = state.source.size(path, ctx.signal).then(async (size) => parseDeletionFile(await state.source.read(path, 0, size, ctx.signal), d.type, ctx.zstd))
-    state.deletions.set(frag.id, rows)
-    rows.catch(() => state.deletions.delete(frag.id))
-  }
-
-  return rows
+  return abortable(
+    memo(deletions, path, async () => parseDeletionFile(await source.read(path, 0, await source.size(path)), d.type, decompressors.zstd)),
+    ctx.signal,
+  )
 }

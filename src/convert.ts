@@ -22,6 +22,9 @@ function numeric(type: string, fixed: Words): TypedArray | number[] {
   const { buffer, byteOffset } = fixed
   const n = fixed.length
 
+  // every timestamp and 64-bit time is a signed int64
+  if (type.startsWith('timestamp:')) return new BigInt64Array(buffer, byteOffset, n)
+
   switch (type) {
     case 'int8':
       return new Int8Array(buffer, byteOffset, n)
@@ -84,17 +87,21 @@ function scalar(type: string): ((v: number | bigint) => Value) | null {
   return null
 }
 
-/** the words of a block's single constant value */
-function constantWords(c: Uint8Array): Words {
-  return words(c.slice(), c.length * 8, 1)
+/** `count` values of a fixed-width block; a constant block repeats its single value */
+function fixedWords(block: Block, count: number): Words {
+  if (block.fixed) return block.fixed
+
+  const c = block.constant
+
+  if (!c) throw new Error('block has no values')
+
+  return words(c.slice(), (c.length * 8) / count, count)
 }
 
-/** a flat numeric view of `count` values, used for fixed-size lists (embeddings stay typed arrays) */
+/** the flat values of `count` fixed-size list items; numbers stay one typed-array view */
 function flat(type: string, block: Block, count: number): TypedArray | Value[] {
-  if (!block.fixed) throw new Error(`fixed-size list of ${type} has no values`)
-
   const conv = scalar(type)
-  const typed = numeric(type, block.fixed)
+  const typed = numeric(type, fixedWords(block, count))
 
   if (!conv) return Array.isArray(typed) ? typed : typed.subarray(0, count)
 
@@ -117,20 +124,24 @@ function leafConverter(type: string): Convert {
     const innerFsl = inner.startsWith('fixed_size_list:') ? converter(inner) : null
 
     return (block, n) => {
-      if (block.constant) return new Array<Value>(n).fill(null)
-
       if (innerFsl) {
         const items = innerFsl(block, n * dim)
 
         return Array.from({ length: n }, (_, i) => items.slice(i * dim, (i + 1) * dim))
       }
 
-      const values = flat(inner, block, n * dim)
+      // a constant page stores one vector; every row shares its values
+      const values = flat(inner, block, block.constant ? dim : n * dim)
+      const step = block.constant ? 0 : dim
+      const valid = block.itemValid
 
-      // typed arrays come back as views into one buffer, not copies
-      if (Array.isArray(values)) return Array.from({ length: n }, (_, i) => values.slice(i * dim, (i + 1) * dim))
+      // with null items a vector becomes a plain array holding nulls
+      if (valid || Array.isArray(values)) {
+        return Array.from({ length: n }, (_, i) => Array.from({ length: dim }, (_, k): Value => (valid && !valid[i * step + k] ? null : values[i * step + k])))
+      }
 
-      return Array.from({ length: n }, (_, i) => values.subarray(i * dim, (i + 1) * dim))
+      // otherwise each vector is a view into one buffer, not a copy
+      return Array.from({ length: n }, (_, i) => values.subarray(i * step, i * step + dim))
     }
   }
 
@@ -165,6 +176,8 @@ function leafConverter(type: string): Convert {
     const width = Number(type.split(':')[1])
 
     return (block, n) => {
+      if (block.constant) return Array.from({ length: n }, () => block.constant?.slice() ?? null)
+
       if (!block.fixed) throw new Error(`${type} column has no values`)
 
       const bytes = asBytes(block.fixed)
@@ -177,7 +190,7 @@ function leafConverter(type: string): Convert {
 
   return (block, n) => {
     if (block.constant) {
-      const v = numeric(type, constantWords(block.constant))[0]
+      const v = numeric(type, fixedWords(block, 1))[0]
 
       return new Array<Value>(n).fill(conv ? conv(v) : v)
     }
@@ -192,6 +205,3 @@ function leafConverter(type: string): Convert {
     return out
   }
 }
-
-/** Raw bytes for lazy values, whatever the column's logical type. */
-export const bytesConverter: Convert = converter('binary')

@@ -130,9 +130,13 @@ export async function decode20(enc: Enc20, s: number, e: number, buf: BufferRead
     }
 
     case 'fsl': {
-      const inner = await decode20(enc.items, s * enc.dim, e * enc.dim, buf, ctx)
+      // the items' validity is per item; row nulls come from a nullable wrapper around the list
+      const { valid, ...inner } = await decode20(enc.items, s * enc.dim, e * enc.dim, buf, ctx)
+      const block: Block = { ...inner, dim: enc.dim * (inner.dim ?? 1) }
 
-      return { ...inner, dim: enc.dim * (inner.dim ?? 1) }
+      if (valid) block.itemValid = valid
+
+      return block
     }
 
     case 'fastlanes': {

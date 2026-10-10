@@ -1,15 +1,13 @@
 // Public value types, plus the decoded "block" that every page decoder produces internally.
 
-/** A large value left on the server. `read()` fetches its raw bytes. */
+/**
+ * A value left on the server: blob columns, and values larger than `maxInlineBytes`.
+ * `byteLength` is the size as stored, which can be smaller than what `read()` returns
+ * when the value is compressed.
+ */
 export interface LazyValue {
   readonly byteLength: number
   read(signal?: AbortSignal): Promise<Uint8Array>
-}
-
-/** Where a blob column's value lives in the data file (Lance blob columns store descriptors). */
-export interface BlobRef {
-  readonly position: number
-  readonly size: number
 }
 
 export type TypedArray =
@@ -24,7 +22,7 @@ export type TypedArray =
   | BigInt64Array
   | BigUint64Array
 
-export type Value = null | boolean | number | bigint | string | Date | TypedArray | LazyValue | BlobRef | Value[] | { [field: string]: Value }
+export type Value = null | boolean | number | bigint | string | Date | TypedArray | LazyValue | Value[] | { [field: string]: Value }
 
 export type Row = { [column: string]: Value }
 
@@ -45,6 +43,8 @@ export interface Block {
   valid?: Uint8Array
   /** fixed-size list dimension */
   dim?: number
+  /** fixed-size list items: 1 = valid, 0 = null (one per item, n * dim) */
+  itemValid?: Uint8Array
   /** one value repeated for every row */
   constant?: Uint8Array
   allNull?: boolean

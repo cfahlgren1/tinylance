@@ -260,11 +260,17 @@ function decodeBlock(e: Enc21, bufs: Uint8Array[], n: number, ctx: DecodeContext
     }
 
     case 'fsl': {
-      if (e.validity) throw new Error('fixed-size lists with item nulls are not supported yet')
-
+      // with item nulls, a validity bitmap for the n * dim items comes before the values
+      const valid = e.validity ? unpackBits(bufs[cursor.i++], n * e.dim) : undefined
       const inner = decodeBlock(e.values, bufs, n * e.dim, ctx, cursor)
 
-      return { ...inner, dim: e.dim * (inner.dim ?? 1) }
+      if (valid && inner.itemValid) throw new Error('nested fixed-size lists with nulls at several levels are not supported')
+
+      const block: Block = { ...inner, dim: e.dim * (inner.dim ?? 1) }
+
+      if (valid) block.itemValid = valid
+
+      return block
     }
 
     case 'packedstruct': {
@@ -480,7 +486,7 @@ export function readPage21(page: PageRef, layout: Layout, start: number, end: nu
       return readConstant(page, layout, start, end, io, ctx, convert)
     case 'blob':
       // large binaries stored out of line: the page holds (position, size) descriptors
-      if (layout.inner.kind === 'miniblock') return readMiniBlock(page, layout.inner, start, end, io, ctx, blobDescriptors)
+      if (layout.inner.kind === 'miniblock') return readMiniBlock(page, layout.inner, start, end, io, ctx, (block, n) => blobValues(block, n, io))
 
       throw new Error(`unsupported blob layout over ${layout.inner.kind}`)
     case 'unsupported':
@@ -853,18 +859,30 @@ function readFullZipSpan(l: FullZipLayout, data: Uint8Array, ctx: DecodeContext,
   let vals: Value[]
 
   if (valueBits !== undefined) {
-    const bytes = new Uint8Array(items.length * valueBytes)
+    // a vector with item nulls stores ceil(dim / 8) validity bytes in front of each value
+    const fsl = l.value.kind === 'fsl' ? l.value : null
+    const dim = fsl?.dim ?? 0
+    const validBytes = fsl?.validity ? Math.ceil(dim / 8) : 0
+    const dataBytes = valueBytes - validBytes
+    const bytes = new Uint8Array(items.length * dataBytes)
+    const itemValid = validBytes ? new Uint8Array(items.length * dim) : null
 
     items.forEach((b, i) => {
-      if (b) bytes.set(b, i * valueBytes)
+      if (!b) return
+
+      bytes.set(b.subarray(validBytes), i * dataBytes)
+
+      if (itemValid) itemValid.set(unpackBits(b, dim), i * dim)
     })
 
-    const dim = l.value.kind === 'fsl' ? l.value.dim : 0
-    const elemBits = dim ? valueBits / dim : valueBits
+    const elemBits = dim ? (dataBytes * 8) / dim : valueBits
     const fixed = elemBits % 8 === 0 && elemBits <= 64 && elemBits !== 24 ? words(bytes, elemBits) : bytes
     const block: Block = { bits: elemBits, fixed }
 
     if (dim) block.dim = dim
+
+    if (itemValid) block.itemValid = itemValid
+
     vals = convert(block, items.length)
   } else {
     // variable width: stitch into offsets and bytes
@@ -894,7 +912,11 @@ function readFullZipSpan(l: FullZipLayout, data: Uint8Array, ctx: DecodeContext,
   return unravel(vals, hasRep ? Uint16Array.from(reps) : null, l.bitsDef ? Uint16Array.from(defs) : null, l.layers)
 }
 
-function blobDescriptors(block: Block, n: number): Value[] {
+/**
+ * Blob columns store (position, size) descriptors; the bytes sit at that absolute offset in the
+ * same data file. Every blob comes back lazy. A null is stored as size 0 at a non-zero position.
+ */
+export function blobValues(block: Block, n: number, io: PageIO): Value[] {
   const [pos, size] = block.packed ?? []
 
   if (!pos || !size) throw new Error('blob page has no descriptors')
@@ -904,7 +926,9 @@ function blobDescriptors(block: Block, n: number): Value[] {
   for (let i = 0; i < n; i++) {
     const p = Number(pos[i])
     const s = Number(size[i])
-    out[i] = s === 0 && p !== 0 ? null : { position: p, size: s }
+    const lazy: LazyValue = { byteLength: s, read: async (signal) => (s ? (await io.readMany([[p, s]], signal))[0] : new Uint8Array(0)) }
+
+    out[i] = s === 0 && p !== 0 ? null : lazy
   }
 
   return out
@@ -920,20 +944,23 @@ async function readFullZipLazy(
   convert: Convert,
 ): Promise<Value[]> {
   const dataOff = page.offsets[0]
+  // each row is [control][length][value]; sizes below count only the value
+  const framing = controlBytes(l) + (l.bitsPerOffset ?? 0) / 8
   const small: number[] = []
   const out = new Array<Value>(n)
 
   for (let i = 0; i < n; i++) {
     const a = at(i)
     const b = at(i + 1)
+    const size = Math.max(0, b - a - framing)
 
-    if (b - a <= ctx.maxInlineBytes) {
+    if (size <= ctx.maxInlineBytes) {
       small.push(i)
       continue
     }
 
     const lazy: LazyValue = {
-      byteLength: b - a,
+      byteLength: size,
       async read(signal) {
         const [buf] = await io.readMany([[dataOff + a, b - a]], signal)
         const [value] = readFullZipSpan(l, buf, ctx, bytesOnly)

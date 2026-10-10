@@ -39,4 +39,4 @@ export { hfSource, httpSource } from './source.ts'
 
 export type { Fetch, HfSourceOptions, HttpSourceOptions, Source, SourceEntry } from './source.ts'
 
-export type { BlobRef, Decompressors, LazyValue, Row, TypedArray, Value, Zstd } from './types.ts'
+export type { Decompressors, LazyValue, Row, TypedArray, Value, Zstd } from './types.ts'
