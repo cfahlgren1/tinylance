@@ -1,13 +1,16 @@
 // Request budgets over real HTTP, against a local server that behaves like the Hub.
 import assert from 'node:assert/strict'
+import { join } from 'node:path'
 import { after, before, test } from 'node:test'
 import { hfSource, lanceOpen, lanceRead } from '../src/node.ts'
-import type { Fetch } from '../src/node.ts'
-import { datasets, expectedRows, normalizeRows, resolveLazy } from './helpers.ts'
+import type { Fetch, LazyValue, Value } from '../src/node.ts'
+import { datasets, expectedRows, FIXTURES, normalizeRows, resolveLazy } from './helpers.ts'
 import { hubUrl, startHub } from './server.ts'
 import type { HubServer } from './server.ts'
 
 let hub: HubServer
+
+const isLazy = (v: Value): v is LazyValue => v instanceof Object && 'read' in v
 
 before(async () => {
   hub = await startHub()
@@ -141,4 +144,19 @@ test('an already-aborted signal rejects before any request', async () => {
 
   await assert.rejects(lanceOpen(source, { signal: AbortSignal.abort() }), { name: 'AbortError' })
   assert.equal(calls.length, 0)
+})
+
+test('external blobs are fetched through the fetch option: whole objects and ranges', async () => {
+  // the fixture points at https://example.com/blob.bin; serve a fixture file in its place
+  const target = `${hub.endpoint}/cdn/blobfiles.expected.json.gz`
+  const object = new Uint8Array(await (await fetch(target)).arrayBuffer())
+  const external: Fetch = (input, init) => fetch(String(input).replace('https://example.com/blob.bin', target), init)
+  const ds = await lanceOpen(join(FIXTURES, 'blobexternal-v2.2.lance'), { fetch: external })
+  const [whole, range] = (await lanceRead(ds, { limit: 2 })).map((r) => r.blob)
+
+  assert.ok(isLazy(whole) && isLazy(range))
+  assert.equal(whole.byteLength, undefined) // stored without a size
+  assert.deepEqual(await whole.read(), object)
+  assert.equal(range.byteLength, 3)
+  assert.deepEqual(await range.read(), object.subarray(2, 5))
 })

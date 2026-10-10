@@ -7,6 +7,7 @@ import {
   byteStreamSplit,
   decompress,
   fastlanesUnpack,
+  fsstDecode,
   fsstDecodeAll,
   fsstTable,
   readUint,
@@ -821,7 +822,7 @@ async function readFullZip(page: PageRef, l: FullZipLayout, start: number, end: 
     to = at(end - start)
 
     // big values (videos, archives): fetch the small rows and hand back lazy handles for the big ones
-    if (!hasRep && to - from > ctx.maxInlineBytes) return readFullZipLazy(page, l, end - start, at, io, ctx, convert)
+    if (!hasRep && l.value.kind !== 'varpackedstruct' && to - from > ctx.maxInlineBytes) return readFullZipLazy(page, l, end - start, at, io, ctx, convert)
   }
 
   const [data] = await io.readMany([[dataOff + from, to - from]], ctx.signal)
@@ -1069,21 +1070,34 @@ function unpackRows(fields: VarPackedField[], rows: (Uint8Array | null)[], ctx: 
       }
 
       if (f.bits) {
-        out[k][i] = readUint(row, o, f.bits / 8)
+        out[k][i] = f.bits === 64 ? readU64(row, o) : readUint(row, o, f.bits / 8)
         o += f.bits / 8
 
         return
       }
 
       const len = readUint(row, o, f.lengthBits / 8)
-      let v = row.subarray(o + f.lengthBits / 8, o + f.lengthBits / 8 + len)
 
+      out[k][i] = decodeValue(f.value, row.subarray(o + f.lengthBits / 8, o + f.lengthBits / 8 + len), ctx)
       o += f.lengthBits / 8 + len
-
-      if (f.value.kind === 'general') v = decompress(f.value.scheme, v, ctx)
-      out[k][i] = v
     })
   })
 
   return out
+}
+
+/** a u64 as a number when it is exact, otherwise a bigint */
+function readU64(b: Uint8Array, o: number): number | bigint {
+  const v = new DataView(b.buffer, b.byteOffset + o, 8).getBigUint64(0, true)
+
+  return v <= BigInt(Number.MAX_SAFE_INTEGER) ? Number(v) : v
+}
+
+/** undo per-value compression of one variable-width value (general compression, FSST) */
+function decodeValue(e: Enc21, v: Uint8Array, ctx: DecodeContext): Uint8Array {
+  if (e.kind === 'general') return decodeValue(e.values, decompress(e.scheme, v, ctx), ctx)
+
+  if (e.kind === 'fsst') return decodeValue(e.values, fsstDecode(v, e.table), ctx)
+
+  return v
 }

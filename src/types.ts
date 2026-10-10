@@ -2,11 +2,11 @@
 
 /**
  * A value left on the server: blob columns, and values larger than `maxInlineBytes`.
- * `byteLength` is the size as stored, which can be smaller than what `read()` returns
- * when the value is compressed.
+ * `byteLength` is the size as stored, which can be smaller than what `read()` returns when the
+ * value is compressed. It is undefined when unknown (an external blob stored without a size).
  */
 export interface LazyValue {
-  readonly byteLength: number
+  readonly byteLength: number | undefined
   read(signal?: AbortSignal): Promise<Uint8Array>
 }
 

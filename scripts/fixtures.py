@@ -170,6 +170,18 @@ def blob_v2(n=9):
     return pa.table({"id": pa.array(np.arange(n, dtype=np.int64)), "blob": pa.array(values, pa.large_binary())}, schema=schema)
 
 
+def blob_external(n=5000):
+    # blob v2 rows pointing at an external URL: alternately the whole object (size 0, length
+    # unknown) and a 3-byte range. Enough repeated URIs that pylance compresses them with FSST.
+    # No expected output: reading them needs the URL, which the test serves itself.
+    from lance.blob import BlobDescriptorArrayBuilder
+
+    field = BlobDescriptorArrayBuilder("blob").field
+    rows = [dict(kind=3, data=None, uri="https://example.com/blob.bin", blob_id=0, blob_size=0 if i % 2 == 0 else 3, position=0 if i % 2 == 0 else 2) for i in range(n)]
+    table = pa.Table.from_arrays([pa.array(rows, type=field.type)], schema=pa.schema([field]))
+    lance.write_dataset(table, os.path.join(OUT, "blobexternal-v2.2.lance"), data_storage_version="2.2", allow_external_blob_outside_bases=True)
+
+
 def zstd_strings():
     meta = {b"lance-encoding:compression": b"zstd"}
     t = strings()
@@ -270,6 +282,7 @@ def main():
     snapshot("nullvectors", [write("nullvectors", nullable_vectors(), v) for v in VERSIONS])
     snapshot("blobfiles", [write("blobfiles", blob_files(), v) for v in ["2.0", "2.1"]])
     snapshot("blobv2", [write("blobv2", blob_v2(), "2.2")])
+    blob_external()
     # datasets for single tests: blob v2 inside a struct, and fixed-size lists nested with nulls
     # inside (rejected on purpose)
     blob = pa.field("b", pa.large_binary(), metadata={"lance-encoding:blob": "true"})

@@ -67,3 +67,18 @@ test('the __manifest table is enough when the store cannot list directories', as
     TABLES,
   )
 })
+
+test('tables come from __manifest when listing is forbidden', async () => {
+  const files = fileSource(join(FIXTURES, 'lancedb'))
+  const forbidden: Source = { ...files, list: async () => Promise.reject(new Error('403 ListBucket forbidden')) }
+  const tables = await lancedbConnect(forbidden).tables()
+
+  assert.deepEqual(
+    tables.sort((a, b) => a.name.localeCompare(b.name)),
+    TABLES,
+  )
+  await assert.rejects(
+    lancedbConnect({ ...forbidden, read: async () => Promise.reject(new Error('404')) }).tables(),
+    /listing failed \(403 ListBucket forbidden\), reading __manifest failed/,
+  )
+})

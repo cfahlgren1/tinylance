@@ -171,9 +171,9 @@ async function readBlobV2(ds: LanceDataset, frag: LanceFragment, field: LanceFie
   if (!loc || loc.column < 0) return new Array<Value>(e - s).fill(null)
 
   const meta = await fileMeta(ds, loc.file, ctx)
-  const { source } = stateOf(ds)
+  const { source, fetch } = stateOf(ds)
 
-  return readColumn(ds, meta, loc.column, s, e, (block, n) => blobV2Values(block, n, meta.path, source.read), ctx)
+  return readColumn(ds, meta, loc.column, s, e, (block, n) => blobV2Values(block, n, meta.path, source.read, fetch), ctx)
 }
 
 function zipStruct(names: string[], children: Value[][], depth: number): Value[] {

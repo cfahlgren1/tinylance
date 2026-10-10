@@ -6,7 +6,7 @@ import { test } from 'node:test'
 import { lanceOpen as browserOpen, lanceRead as browserRead } from '../src/index.ts'
 import { fileSource, lanceOpen, lanceRead, readRows } from '../src/node.ts'
 import type { LazyValue, Source, Value } from '../src/node.ts'
-import { expectedRows, FIXTURES, normalizeRows } from './helpers.ts'
+import { expectedRows, FIXTURES, normalizeRows, resolveLazy } from './helpers.ts'
 
 const fixture = (name: string): string => join(FIXTURES, name)
 
@@ -142,6 +142,16 @@ test('blob v2 values are lazy, whether inline, in a packed sidecar or in their o
 
     assert.equal(blob.byteLength, bytes.length)
     assert.deepEqual({ $bytes: bytes.length, sha1: createHash('sha1').update(bytes).digest('hex') }, expected[i].blob)
+  }
+})
+
+test('blob v2 values stay readable with any maxInlineBytes', async () => {
+  const expected = expectedRows('blobv2')
+
+  for (const maxInlineBytes of [0, 20]) {
+    const rows = await readRows(fixture('blobv2-v2.2.lance'), { maxInlineBytes })
+
+    assert.deepEqual(normalizeRows(await resolveLazy(rows)), expected, `maxInlineBytes ${maxInlineBytes}`)
   }
 })
 

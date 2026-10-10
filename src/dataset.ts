@@ -5,7 +5,7 @@ import type { FileMeta } from './file.ts'
 import { all, bytes, decode, int32, msg, num, packed, str, u64 } from './proto.ts'
 import type { Proto } from './proto.ts'
 import { abortable, cachedSource, memo } from './source.ts'
-import type { CachedSource, Source } from './source.ts'
+import type { CachedSource, Fetch, Source } from './source.ts'
 import type { DecodeContext, Decompressors, Zstd } from './types.ts'
 import { loadZstd } from './zstd.ts'
 
@@ -59,12 +59,15 @@ export interface LanceOpenOptions {
   version?: number
   signal?: AbortSignal | undefined
   decompressors?: Decompressors
+  /** used for blobs stored at external URLs; defaults to the global fetch */
+  fetch?: Fetch
 }
 
 /** internal state kept off the public dataset object */
 export interface DatasetState {
   source: CachedSource
   decompressors: Decompressors
+  fetch: Fetch
   files: Map<string, Promise<FileMeta>>
   /** by deletion file path */
   deletions: Map<string, Promise<Uint32Array>>
@@ -90,7 +93,14 @@ export async function openDataset(source: Source, options: LanceOpenOptions = {}
   const { path, size } = await findManifest(cached, options.version, options.signal)
   const ds = await readManifest(cached, path, size, options.signal)
 
-  states.set(ds, { source: cached, decompressors: options.decompressors ?? {}, files: new Map(), deletions: new Map(), zstdLoad: new Map() })
+  states.set(ds, {
+    source: cached,
+    decompressors: options.decompressors ?? {},
+    fetch: options.fetch ?? ((input, init) => globalThis.fetch(input, init)),
+    files: new Map(),
+    deletions: new Map(),
+    zstdLoad: new Map(),
+  })
 
   return ds
 }
