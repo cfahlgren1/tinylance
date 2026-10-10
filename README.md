@@ -65,4 +65,6 @@ zstd uses Node's built-in decoder. Browsers and Workers have none, so tinylance 
     npm run size                          # bundle budget
     uv run scripts/fixtures.py            # regenerate fixtures with pylance
 
+Releases: bump `version` in package.json, then `gh release create v<version> --generate-notes`. The release workflow checks, tests and publishes that version to npm with provenance.
+
 Not affiliated with LanceDB. MIT licensed.
