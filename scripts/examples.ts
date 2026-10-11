@@ -2,6 +2,7 @@
 // map's tinylance URLs answered by a bundle of this checkout, and checks each example renders.
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { createServer } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { build } from 'esbuild'
@@ -53,18 +54,38 @@ try {
   )
   await tab.goto(`${origin}/`)
 
-  const examples = await tab.locator('.examples button').allTextContents()
+  // the MNIST card previews five digits read from the Hub
+  await tab.waitForFunction(() => document.querySelectorAll('#peek-mnist img').length === 5, null, { timeout: 60_000 })
 
-  for (const [i, name] of examples.entries()) {
-    await tab.locator('.examples button').nth(i).click()
+  const shot = async (name: string) => {
+    if (process.env.SCREENSHOTS) await tab.screenshot({ path: `${process.env.SCREENSHOTS}/${name}.png`, fullPage: true })
+  }
+
+  /** wait for the page to finish, then check it rendered rows */
+  const settled = async (name: string) => {
     await tab.waitForFunction(() => document.body.dataset.state === 'ready' || document.body.dataset.state === 'error', null, { timeout: 60_000 })
 
     const state = await tab.evaluate(() => document.body.dataset.state)
-    const status = (await tab.locator('#status').textContent()) ?? ''
-    const rows = await tab.locator('#rows tr').count()
+    const status = ((await tab.locator('#status').textContent()) ?? '').replace(/\s+/g, ' ')
 
     assert.equal(state, 'ready', `${name}: ${status}`)
-    assert.ok(rows > 1, `${name}: no rows rendered`)
+    assert.ok((await tab.locator('#rows tr').count()) > 1, `${name}: no rows rendered`)
+    console.log(`ok ${name}: ${status}`)
+  }
+
+  await shot('start')
+
+  // back to the start page; the logo only shows once a dataset is open
+  const home = async () => {
+    if (await tab.locator('#home').isVisible()) await tab.locator('#home').click()
+  }
+
+  const cards = await tab.locator('.card b').allTextContents()
+
+  for (const [i, name] of cards.entries()) {
+    await home()
+    await tab.locator('.card').nth(i).click()
+    await settled(name)
 
     // MNIST images are rendered from the bytes tinylance returns
     if (i === 0)
@@ -72,11 +93,21 @@ try {
         [...document.querySelectorAll('#rows img')].some((img) => img instanceof HTMLImageElement && img.complete && img.naturalWidth > 0),
       )
 
-    if (process.env.SCREENSHOTS) await tab.screenshot({ path: `${process.env.SCREENSHOTS}/example-${i + 1}.png`, fullPage: true })
-
-    console.log(`ok ${name}: ${status}`)
+    await shot(name.toLowerCase())
   }
 
+  // clicking a LanceDB table opens it
+  await tab.locator('#rows tr.link').first().click()
+  await settled('LanceDB table')
+
+  // local folders, read through the File API: a dataset, then a LanceDB database
+  for (const folder of ['scalars-v2.1.lance', 'lancedb']) {
+    await home()
+    await tab.setInputFiles('#folder', join(root, 'test/fixtures', folder))
+    await settled(`local ${folder}`)
+  }
+
+  await shot('local')
   assert.deepEqual(errors, [])
 } finally {
   await browser.close()

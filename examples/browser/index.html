@@ -3,15 +3,17 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>tinylance: Lance datasets in the browser</title>
+    <title>tinylance · Lance datasets in the browser</title>
     <script type="importmap">
       { "imports": { "tinylance": "https://esm.sh/tinylance@0.1", "tinylance/lancedb": "https://esm.sh/tinylance@0.1/lancedb" } }
     </script>
     <style>
       :root {
-        --ink: #17181c;
-        --muted: #6b6f7b;
-        --line: #e6e7eb;
+        --ink: #16171a;
+        --muted: #6e717c;
+        --faint: #a2a5ae;
+        --line: #e8e9ec;
+        --soft: #f6f6f8;
         --accent: #ff6b00;
         font-family:
           ui-sans-serif,
@@ -21,97 +23,251 @@
           sans-serif;
         color: var(--ink);
       }
-      body {
-        margin: 0 auto;
-        max-width: 1100px;
-        padding: 32px 20px 60px;
+      * {
+        box-sizing: border-box;
       }
-      h1 {
-        font-size: 28px;
+      body {
         margin: 0;
       }
-      h1 span {
-        color: var(--accent);
-      }
-      p.lede {
-        color: var(--muted);
-        margin: 6px 0 24px;
+      button {
+        font: inherit;
+        color: inherit;
+        cursor: pointer;
       }
       code,
       input,
       .mono {
         font-family: ui-monospace, 'SF Mono', Menlo, monospace;
-        font-size: 13px;
       }
-      .examples {
-        display: flex;
-        gap: 8px;
-        flex-wrap: wrap;
-        margin-bottom: 12px;
+      main {
+        margin: 0 auto;
+        max-width: 720px;
+        padding: 14vh 24px 48px;
+        transition:
+          max-width 0.3s ease,
+          padding 0.3s ease;
       }
-      button {
-        border: 1px solid var(--line);
-        background: #fff;
-        color: var(--ink);
-        border-radius: 999px;
-        padding: 6px 14px;
-        cursor: pointer;
-        font: inherit;
-        font-size: 14px;
+      body.open main {
+        max-width: 1180px;
+        padding-top: 24px;
       }
-      button:hover,
-      button.active {
-        border-color: var(--accent);
+
+      /* start: logo, input, example cards */
+      header {
+        text-align: center;
+        margin-bottom: 26px;
+      }
+      h1 {
+        font-size: 34px;
+        margin: 0;
+        letter-spacing: -0.03em;
+      }
+      h1 span {
+        color: var(--accent);
+      }
+      header p {
+        color: var(--muted);
+        margin: 8px 0 0;
+      }
+      body.open header {
+        display: none;
       }
       form {
         display: flex;
-        gap: 8px;
-        margin-bottom: 16px;
+        align-items: center;
+        gap: 10px;
       }
-      input {
+      form .home {
+        display: none;
+        border: 0;
+        background: none;
+        padding: 0;
+        font-weight: 700;
+        font-size: 16px;
+        letter-spacing: -0.02em;
+      }
+      form .home span {
+        color: var(--accent);
+      }
+      body.open form .home {
+        display: block;
+      }
+      .bar {
         flex: 1;
+        display: flex;
         border: 1px solid var(--line);
-        border-radius: 8px;
-        padding: 8px 10px;
+        border-radius: 12px;
+        padding: 5px 5px 5px 14px;
       }
-      input[type='number'] {
-        flex: 0 0 130px;
+      .bar:focus-within {
+        border-color: var(--faint);
       }
-      form button {
+      .bar input {
+        flex: 1;
+        min-width: 0;
+        border: 0;
+        outline: none;
+        font-size: 13px;
+      }
+      .bar button {
+        border: 0;
         border-radius: 8px;
         background: var(--ink);
         color: #fff;
-        border-color: var(--ink);
+        padding: 9px 16px;
+        font-size: 14px;
+      }
+      .examples {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 12px;
+        margin-top: 18px;
+      }
+      .card {
+        text-align: left;
+        border: 1px solid var(--line);
+        border-radius: 14px;
+        padding: 12px;
+        background: #fff;
+        transition: border-color 0.15s;
+      }
+      .card:hover {
+        border-color: var(--accent);
+      }
+      .peek {
+        height: 74px;
+        border-radius: 8px;
+        background: var(--soft);
+        margin-bottom: 12px;
+        overflow: hidden;
+        display: flex;
+        gap: 4px;
+        padding: 8px;
+        align-items: center;
+        font-size: 11px;
+        line-height: 1.4;
+        color: var(--muted);
+      }
+      .peek img {
+        height: 42px;
+        image-rendering: pixelated;
+        border-radius: 3px;
+      }
+      .card b {
+        font-size: 14px;
+      }
+      .card small {
+        display: block;
+        color: var(--muted);
+        margin-top: 3px;
+        font-size: 12px;
+      }
+      .drop {
+        text-align: center;
+        color: var(--faint);
+        font-size: 13px;
+        margin-top: 22px;
+      }
+      .drop label {
+        color: var(--muted);
+        text-decoration: underline;
+        text-decoration-color: var(--line);
+        text-underline-offset: 3px;
+        cursor: pointer;
+      }
+      body.open .examples,
+      body.open .drop {
+        display: none;
+      }
+      body.dragging::after {
+        content: 'Drop a .lance folder to read it here';
+        position: fixed;
+        inset: 12px;
+        display: grid;
+        place-items: center;
+        border: 2px dashed var(--accent);
+        border-radius: 16px;
+        background: rgb(255 255 255 / 0.93);
+        font-size: 18px;
+        pointer-events: none;
+      }
+
+      /* open: sidebar and table */
+      .layout {
+        display: none;
+      }
+      body.open .layout {
+        display: grid;
+        grid-template-columns: 230px minmax(0, 1fr);
+        gap: 22px;
+        margin-top: 18px;
+      }
+      aside {
+        border-right: 1px solid var(--line);
+        padding-right: 18px;
+        font-size: 13px;
+        min-width: 0;
+      }
+      aside h3 {
+        font-size: 12px;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        color: var(--faint);
+        margin: 4px 0 10px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .field {
+        display: flex;
+        justify-content: space-between;
+        gap: 10px;
+        padding: 5px 0;
+      }
+      .field span {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .field code {
+        color: var(--muted);
+        font-size: 11px;
+        white-space: nowrap;
       }
       #status {
         color: var(--muted);
-        font-size: 14px;
-        min-height: 20px;
-        margin-bottom: 10px;
+        line-height: 1.8;
+        margin-top: 16px;
+        padding-top: 14px;
+        border-top: 1px solid var(--line);
       }
       #status.error {
         color: #c62828;
       }
-      .schema {
+      .pager {
         display: flex;
-        flex-wrap: wrap;
         gap: 6px;
-        margin-bottom: 14px;
+        margin-top: 12px;
       }
-      .schema span {
-        color: var(--muted);
-        background: #f5f5f7;
-        border-radius: 6px;
-        padding: 3px 7px;
-        font-size: 12px;
+      .pager button {
+        flex: 1;
+        border: 1px solid var(--line);
+        background: #fff;
+        border-radius: 8px;
+        padding: 6px;
+        font-size: 13px;
       }
-      .schema b {
-        color: var(--ink);
+      .pager button:disabled {
+        color: var(--faint);
+        cursor: default;
+      }
+      body.listing .pager {
+        display: none;
       }
       .scroll {
         overflow-x: auto;
         border: 1px solid var(--line);
-        border-radius: 10px;
+        border-radius: 12px;
+        align-self: start;
       }
       table {
         border-collapse: collapse;
@@ -122,18 +278,23 @@
       td {
         text-align: left;
         vertical-align: middle;
-        padding: 7px 12px;
+        padding: 8px 12px;
         border-bottom: 1px solid var(--line);
         max-width: 260px;
         white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
       }
+      th {
+        background: #fafafb;
+        color: var(--muted);
+        font-size: 12px;
+        font-weight: 600;
+      }
       tr:last-child td {
         border-bottom: 0;
       }
-      td.num,
-      th.num {
+      .num {
         text-align: right;
         font-variant-numeric: tabular-nums;
       }
@@ -143,63 +304,91 @@
       tr.link:hover td {
         background: #fff7f0;
       }
-      th {
-        background: #fafafb;
-        font-weight: 600;
-        position: sticky;
-        top: 0;
-      }
       td img {
         display: block;
-        height: 40px;
+        height: 34px;
         image-rendering: pixelated;
         border-radius: 4px;
       }
       .dim {
-        color: var(--muted);
+        color: var(--faint);
       }
-      a {
-        color: inherit;
+      footer {
+        margin-top: 36px;
+        text-align: center;
+        color: var(--faint);
+        font-size: 13px;
+      }
+      footer a {
+        color: var(--muted);
         text-decoration-color: var(--line);
         text-underline-offset: 3px;
       }
-      a:hover {
-        text-decoration-color: var(--accent);
-      }
-      footer {
-        margin-top: 28px;
-        color: var(--muted);
-        font-size: 13px;
+      @media (max-width: 760px) {
+        .examples,
+        body.open .layout {
+          grid-template-columns: 1fr;
+        }
+        aside {
+          border-right: 0;
+          padding-right: 0;
+        }
       }
     </style>
   </head>
   <body>
-    <h1>tiny<span>lance</span></h1>
-    <p class="lede">
-      Read Lance datasets on the Hugging Face Hub straight from the browser: only the byte ranges a page of rows needs, with
-      <a href="https://github.com/cfahlgren1/tinylance">a 17 KB library</a> and no server.
-    </p>
+    <main>
+      <header>
+        <h1>tiny<span>lance</span></h1>
+        <p>Read Lance datasets in the browser. Only the bytes a page of rows needs, no server.</p>
+      </header>
 
-    <div class="examples">
-      <button data-url="hf://datasets/lance-format/mnist-lance/data/train.lance">MNIST: images and embeddings</button>
-      <button data-url="hf://datasets/lance-format/fineweb-edu/data/train.lance" data-offset="1000000000">FineWeb-Edu: 1.5 billion rows of text</button>
-      <button data-lancedb="hf://datasets/lance-format/mnist-lance/data">LanceDB: list a database's tables</button>
-    </div>
+      <form id="form">
+        <button class="home" type="button" id="home">tiny<span>lance</span></button>
+        <div class="bar">
+          <input id="url" placeholder="hf://datasets/owner/name/table.lance" aria-label="dataset URL" spellcheck="false" />
+          <button type="submit">Open</button>
+        </div>
+      </form>
 
-    <form id="form">
-      <input id="url" placeholder="hf://datasets/owner/name/path/to/table.lance" aria-label="dataset URL" />
-      <input id="offset" type="number" min="0" value="0" aria-label="first row" />
-      <button type="submit">Read 10 rows</button>
-    </form>
+      <div class="examples">
+        <button class="card" type="button" data-url="hf://datasets/lance-format/mnist-lance/data/train.lance">
+          <div class="peek" id="peek-mnist"></div>
+          <b>MNIST</b><small>images · embeddings</small>
+        </button>
+        <button class="card" type="button" data-url="hf://datasets/lance-format/fineweb-edu/data/train.lance" data-offset="1000000000">
+          <div class="peek">On a quest to forge more meaningful science learning experiences for Hockinson students…</div>
+          <b>FineWeb-Edu</b><small>1.5 billion rows of text</small>
+        </button>
+        <button class="card" type="button" data-url="hf://datasets/lance-format/mnist-lance/data">
+          <div class="peek mono">▤ test.lance<br />▤ train.lance</div>
+          <b>LanceDB</b><small>a database of tables</small>
+        </button>
+      </div>
 
-    <div id="status"></div>
-    <div id="schema" class="schema"></div>
-    <div class="scroll"><table id="rows"></table></div>
+      <p class="drop">
+        or drop a <code>.lance</code> folder anywhere, or <label>choose one<input id="folder" type="file" webkitdirectory hidden /></label>. It never leaves
+        your computer.
+      </p>
 
-    <footer>
-      <code>npm install tinylance</code> · <a href="https://github.com/cfahlgren1/tinylance">GitHub</a> ·
-      <a href="https://www.npmjs.com/package/tinylance">npm</a>
-    </footer>
+      <div class="layout">
+        <aside>
+          <h3 id="title"></h3>
+          <div id="fields"></div>
+          <div id="status"></div>
+          <div class="pager">
+            <button id="prev" type="button">← Prev</button>
+            <button id="next" type="button">Next →</button>
+          </div>
+        </aside>
+        <div class="scroll"><table id="rows"></table></div>
+      </div>
+
+      <footer>
+        <code>npm install tinylance</code> · <a href="https://github.com/cfahlgren1/tinylance">GitHub</a> ·
+        <a href="https://www.npmjs.com/package/tinylance">npm</a>
+      </footer>
+    </main>
 
     <script type="module">
       import { hfSource, lanceOpen, lanceRead } from 'tinylance'
@@ -209,6 +398,7 @@
       const PAGE = 10
       let requests = 0
       let controller
+      let current
 
       // count every request so the page shows how little it fetches
       const countingFetch = (input, init) => {
@@ -216,11 +406,20 @@
         return fetch(input, init)
       }
 
-      const source = (url) => hfSource(url, { fetch: countingFetch })
+      const isNumber = (v) => typeof v === 'number' || typeof v === 'bigint'
+      const escape = (text) => text.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c])
+      const shortType = (t) => t.replace(/^fixed_size_list:(\w+):(\d+)$/, 'vector · $2').replace('large_', '')
 
       function status(text, error = false) {
-        $('status').textContent = text
+        $('status').innerHTML = text
         $('status').className = error ? 'error' : ''
+      }
+
+      function image(bytes) {
+        const png = bytes[0] === 0x89 && bytes[1] === 0x50
+        const jpeg = bytes[0] === 0xff && bytes[1] === 0xd8
+
+        return png || jpeg ? URL.createObjectURL(new Blob([bytes], { type: png ? 'image/png' : 'image/jpeg' })) : null
       }
 
       /** a short, readable rendering of any value tinylance returns */
@@ -228,19 +427,15 @@
         if (value === null || value === undefined) return '<span class="dim">null</span>'
 
         if (value instanceof Uint8Array) {
-          const png = value[0] === 0x89 && value[1] === 0x50
-          const jpeg = value[0] === 0xff && value[1] === 0xd8
+          const src = image(value)
 
-          if (png || jpeg) return `<img alt="" src="${URL.createObjectURL(new Blob([value], { type: png ? 'image/png' : 'image/jpeg' }))}">`
-
-          return `<span class="dim">${value.length} bytes</span>`
+          return src ? `<img alt="" src="${src}">` : `<span class="dim">${value.length.toLocaleString()} bytes</span>`
         }
 
         if (ArrayBuffer.isView(value))
-          return `<span class="dim">[${Array.from(value.subarray(0, 3), (x) => Number(x).toFixed(3)).join(', ')}, … ${value.length} values]</span>`
+          return `<span class="dim">[${Array.from(value.subarray(0, 3), (x) => Number(x).toFixed(3)).join(', ')}, … ${value.length}]</span>`
         if (value instanceof Date) return value.toISOString()
-        if (typeof value === 'object' && 'read' in value) return `<span class="dim">lazy, ${value.byteLength ?? '?'} bytes</span>`
-
+        if (typeof value === 'object' && 'read' in value) return `<span class="dim">lazy · ${value.byteLength?.toLocaleString() ?? '?'} bytes</span>`
         if (isNumber(value)) return typeof value === 'number' && !Number.isInteger(value) ? value.toFixed(3) : value.toLocaleString()
 
         const text = typeof value === 'object' ? JSON.stringify(value, (_, x) => (typeof x === 'bigint' ? String(x) : x)) : String(value)
@@ -248,98 +443,218 @@
         return escape(text.slice(0, 300))
       }
 
-      const isNumber = (v) => typeof v === 'number' || typeof v === 'bigint'
-      const escape = (text) => text.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c])
-
       /** a table of rows; `onRow` makes rows clickable */
       function table(columns, rows, onRow) {
-        // headers line up with their column's values
         const numeric = columns.map((c) => rows.length > 0 && rows.every((r) => r[c] === null || isNumber(r[c])))
         const head = `<tr>${columns.map((c, k) => `<th class="${numeric[k] ? 'num' : ''}">${c}</th>`).join('')}</tr>`
-        const cell = (v) => {
+        const cell = (v, k) => {
           const title = typeof v === 'string' && v.length > 40 ? ` title="${escape(v.slice(0, 2000))}"` : ''
 
-          return `<td class="${isNumber(v) ? 'num' : ''}"${title}>${render(v)}</td>`
+          return `<td class="${numeric[k] ? 'num' : ''}"${title}>${render(v)}</td>`
         }
-        const body = rows.map((r, i) => `<tr class="${onRow ? 'link' : ''}" data-i="${i}">${columns.map((c) => cell(r[c])).join('')}</tr>`).join('')
+        const body = rows.map((r, i) => `<tr class="${onRow ? 'link' : ''}" data-i="${i}">${columns.map((c, k) => cell(r[c], k)).join('')}</tr>`).join('')
 
         $('rows').innerHTML = head + body
 
         if (onRow) for (const tr of $('rows').querySelectorAll('tr.link')) tr.addEventListener('click', () => onRow(rows[Number(tr.dataset.i)]))
       }
 
-      async function readDataset(url, offset) {
+      /** a tinylance Source over a dropped or chosen folder, from File objects keyed by path */
+      function folderSource(files) {
+        const dirs = new Map()
+
+        for (const [path, file] of files) {
+          const parts = path.split('/')
+
+          parts.forEach((name, i) => {
+            const dir = parts.slice(0, i).join('/')
+            const entries = dirs.get(dir) ?? new Map()
+            const isFile = i === parts.length - 1
+
+            entries.set(name, { name, type: isFile ? 'file' : 'directory', size: isFile ? file.size : undefined })
+            dirs.set(dir, entries)
+          })
+        }
+
+        const get = (path) => files.get(path) ?? Promise.reject(new Error(`${path} is not in the folder`))
+
+        return {
+          read: async (path, offset, length) => new Uint8Array(await (await get(path)).slice(offset, offset + length).arrayBuffer()),
+          size: async (path) => (await get(path)).size,
+          list: async (dir) => [...(dirs.get(dir) ?? new Map()).values()],
+        }
+      }
+
+      function begin(title, listing) {
         controller?.abort()
         controller = new AbortController()
         requests = 0
-        status(`Opening ${url}…`)
+        document.body.classList.add('open')
+        document.body.classList.toggle('listing', listing)
+        document.body.dataset.state = 'loading'
+        $('title').textContent = title
+        $('fields').innerHTML = ''
+        $('rows').innerHTML = ''
+        status('Loading…')
+      }
 
+      async function showPage(offset) {
+        const { dataset, remote } = current
         const started = performance.now()
-        const dataset = await lanceOpen(source(url), { signal: controller.signal })
         const rows = await lanceRead(dataset, { offset, limit: PAGE, maxInlineBytes: 1 << 20, signal: controller.signal })
         const ms = Math.round(performance.now() - started)
 
-        $('schema').innerHTML = dataset.schema.map((f) => `<span class="mono"><b>${f.name}</b> ${f.type}</span>`).join('')
+        current.offset = offset
         table(
           dataset.schema.map((f) => f.name),
           rows,
         )
+        $('prev').disabled = offset === 0
+        $('next').disabled = offset + PAGE >= dataset.numRows
         status(
-          `${dataset.numRows.toLocaleString()} rows · Lance ${dataset.format} · rows ${offset.toLocaleString()}–${(offset + rows.length - 1).toLocaleString()} · ${ms} ms · ${requests} requests`,
+          `${dataset.numRows.toLocaleString()} rows<br>Lance ${dataset.format}<br>rows ${offset.toLocaleString()}–${(offset + rows.length - 1).toLocaleString()}<br>${ms} ms${remote ? ` · ${requests} requests` : ' · local'}`,
         )
+      }
+
+      async function openDataset(source, title, offset, remote) {
+        begin(title, false)
+
+        const dataset = await lanceOpen(source, { signal: controller.signal })
+
+        current = { dataset, remote, offset }
+        $('fields').innerHTML = dataset.schema.map((f) => `<div class="field"><span>${f.name}</span><code>${shortType(f.type)}</code></div>`).join('')
+        await showPage(Math.min(offset, Math.max(0, dataset.numRows - PAGE)))
         document.body.dataset.state = 'ready'
       }
 
-      async function listDatabase(url) {
-        requests = 0
-        status(`Listing ${url}…`)
+      async function openDatabase(source, title, remote, onTable) {
+        begin(title, true)
 
-        const db = lancedbConnect(source(url))
+        const db = lancedbConnect(source)
         const tables = await db.tables()
         const details = await Promise.all(tables.map(async (t) => ({ ...t, rows: (await db.open(t.name)).numRows })))
 
-        $('url').value = url
-        $('offset').value = 0
-        $('schema').innerHTML = ''
-        table(['name', 'location', 'rows'], details, (t) => {
-          $('url').value = `${url}/${t.location}`
-          $('form').requestSubmit()
-        })
-        status(`${tables.length} tables · ${requests} requests · click one to read it`)
+        $('fields').innerHTML = details.map((t) => `<div class="field"><span>${t.name}</span><code>${t.rows.toLocaleString()} rows</code></div>`).join('')
+        table(['name', 'location', 'rows'], details, (t) => run(() => onTable(t)))
+        status(`LanceDB · ${tables.length} tables${remote ? ` · ${requests} requests` : ''}<br>click a table to read it`)
         document.body.dataset.state = 'ready'
       }
 
-      async function run(task) {
-        document.body.dataset.state = 'loading'
+      function openUrl(url, offset = 0) {
+        const name = url.replace(/\/$/, '').split('/').pop()
+        const source = hfSource(url, { fetch: countingFetch })
 
+        $('url').value = url
+
+        // anything that isn't a .lance table is treated as a LanceDB database
+        if (url.endsWith('.lance')) return openDataset(source, name, offset, true)
+
+        return openDatabase(source, name, true, (t) => openUrl(`${url.replace(/\/$/, '')}/${t.location}`))
+      }
+
+      async function openFolder(files, name) {
+        const source = folderSource(files)
+
+        $('url').value = ''
+
+        if ((await source.list('')).some((e) => e.name === '_versions')) return openDataset(source, name, 0, false)
+
+        // a folder of tables: a LanceDB database
+        return openDatabase(source, name, false, (t) => {
+          const prefix = `${t.location}/`
+          const inner = new Map([...files].flatMap(([path, f]) => (path.startsWith(prefix) ? [[path.slice(prefix.length), f]] : [])))
+
+          return openDataset(folderSource(inner), t.name, 0, false)
+        })
+      }
+
+      async function run(task) {
         try {
           await task()
         } catch (error) {
           if (error.name === 'AbortError') return
 
-          status(error.message, true)
+          status(escape(error.message), true)
           document.body.dataset.state = 'error'
         }
       }
 
       $('form').addEventListener('submit', (event) => {
         event.preventDefault()
-        run(() => readDataset($('url').value.trim(), Number($('offset').value) || 0))
+
+        const url = $('url').value.trim()
+
+        if (url) run(() => openUrl(url))
+      })
+      $('home').addEventListener('click', () => {
+        controller?.abort()
+        document.body.classList.remove('open', 'listing')
+        $('url').value = ''
+      })
+      $('prev').addEventListener('click', () => run(() => showPage(Math.max(0, current.offset - PAGE))))
+      $('next').addEventListener('click', () => run(() => showPage(current.offset + PAGE)))
+
+      for (const card of document.querySelectorAll('.card'))
+        card.addEventListener('click', () => run(() => openUrl(card.dataset.url, Number(card.dataset.offset ?? 0))))
+
+      // a chosen folder: each file's path inside it is in webkitRelativePath
+      $('folder').addEventListener('change', () => {
+        const chosen = [...$('folder').files]
+
+        if (!chosen.length) return
+
+        const name = chosen[0].webkitRelativePath.split('/')[0]
+
+        run(() => openFolder(new Map(chosen.map((f) => [f.webkitRelativePath.slice(name.length + 1), f])), name))
       })
 
-      for (const button of document.querySelectorAll('.examples button')) {
-        button.addEventListener('click', () => {
-          document.querySelectorAll('.examples button').forEach((b) => b.classList.toggle('active', b === button))
+      // a dropped folder: walk its entries
+      async function collect(entry, path, files) {
+        if (entry.isFile) return files.set(path, await new Promise((resolve, reject) => entry.file(resolve, reject)))
 
-          if (button.dataset.lancedb) return run(() => listDatabase(button.dataset.lancedb))
+        const reader = entry.createReader()
+        let batch
 
-          $('url').value = button.dataset.url
-          $('offset').value = button.dataset.offset ?? 0
-          $('form').requestSubmit()
-        })
+        do {
+          batch = await new Promise((resolve, reject) => reader.readEntries(resolve, reject))
+
+          for (const child of batch) await collect(child, path ? `${path}/${child.name}` : child.name, files)
+        } while (batch.length)
       }
 
-      document.querySelector('.examples button').click()
+      addEventListener('dragover', (event) => {
+        event.preventDefault()
+        document.body.classList.add('dragging')
+      })
+      addEventListener('dragleave', (event) => {
+        if (!event.relatedTarget) document.body.classList.remove('dragging')
+      })
+      addEventListener('drop', (event) => {
+        event.preventDefault()
+        document.body.classList.remove('dragging')
+
+        const entry = event.dataTransfer.items[0]?.webkitGetAsEntry()
+
+        if (!entry?.isDirectory) {
+          document.body.classList.add('open')
+          return status('Drop a folder: a Lance dataset is a directory, like train.lance', true)
+        }
+
+        run(async () => {
+          const files = new Map()
+
+          await collect(entry, '', files)
+          await openFolder(files, entry.name)
+        })
+      })
+
+      // live preview on the MNIST card: five digits read from the Hub
+      lanceOpen('hf://datasets/lance-format/mnist-lance/data/train.lance')
+        .then((ds) => lanceRead(ds, { columns: ['image'], limit: 5 }))
+        .then((rows) => {
+          $('peek-mnist').innerHTML = rows.map((r) => `<img alt="" src="${image(r.image)}">`).join('')
+        })
+        .catch(() => {})
     </script>
   </body>
 </html>
