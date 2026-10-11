@@ -4,6 +4,7 @@
 
 **Read [Lance](https://github.com/lance-format/lance) datasets anywhere JavaScript runs.** Browsers, Node, Bun, Deno and Workers, in 17 KB with zero dependencies.
 
+<a href="https://huggingface.co/spaces/cfahlgren1/tinylance"><img src="https://huggingface.co/datasets/huggingface/badges/resolve/main/open-in-hf-spaces-sm.svg" alt="Open in Spaces"></a>
 <a href="https://www.npmjs.com/package/tinylance"><img src="https://img.shields.io/npm/v/tinylance" alt="npm"></a>
 <img src="https://img.shields.io/badge/license-MIT-2ea44f" alt="MIT">
 <img src="https://img.shields.io/badge/gzip-17%20KB-orange" alt="17 KB gzip">
@@ -49,7 +50,7 @@ await db.tables() // [{ name: 'test', location: 'test.lance' }, { name: 'train',
 const train = await db.open('train')
 ```
 
-More in [examples/](examples): a [Node script](examples/node/read.mjs) and a [one-file browser page](examples/browser/index.html), both reading datasets on the Hub. CI runs them against the Hub on every push.
+**[Try it in your browser](https://huggingface.co/spaces/cfahlgren1/tinylance)**: browse Lance datasets on the Hub, or drop in a local `.lance` folder. The page is [one HTML file](examples/browser/index.html); there's also a [Node script](examples/node/read.mjs), and CI runs both against the Hub on every push.
 
 tinylance fetches only the byte ranges it needs. Opening a dataset takes 2 requests, and a page of 20 rows a few more.
 
