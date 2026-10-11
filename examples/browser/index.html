@@ -72,6 +72,45 @@
       body.open header {
         display: none;
       }
+      .links {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        gap: 16px;
+        margin-top: 18px;
+        font-size: 13px;
+      }
+      .links a {
+        color: var(--muted);
+        text-decoration: underline;
+        text-decoration-color: var(--line);
+        text-underline-offset: 3px;
+      }
+      .links a:hover {
+        color: var(--ink);
+        text-decoration-color: var(--accent);
+      }
+      .install {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        border: 1px solid var(--line);
+        background: var(--soft);
+        border-radius: 8px;
+        padding: 6px 8px 6px 12px;
+      }
+      .install code {
+        font-size: 12.5px;
+      }
+      .install span {
+        color: var(--faint);
+        font-size: 12px;
+        border-left: 1px solid var(--line);
+        padding-left: 8px;
+      }
+      .install:hover span {
+        color: var(--accent);
+      }
       form {
         display: flex;
         align-items: center;
@@ -313,6 +352,9 @@
       .dim {
         color: var(--faint);
       }
+      body:not(.open) footer {
+        display: none;
+      }
       footer {
         margin-top: 36px;
         text-align: center;
@@ -341,6 +383,11 @@
       <header>
         <h1>tiny<span>lance</span></h1>
         <p>Read Lance datasets in the browser. Only the bytes a page of rows needs, no server.</p>
+        <div class="links">
+          <button class="install" id="copy" type="button" title="Copy"><code>npm install tinylance</code><span id="copied">copy</span></button>
+          <a href="https://github.com/cfahlgren1/tinylance">GitHub</a>
+          <a href="https://www.npmjs.com/package/tinylance">npm</a>
+        </div>
       </header>
 
       <form id="form">
@@ -590,6 +637,11 @@
         controller?.abort()
         document.body.classList.remove('open', 'listing')
         $('url').value = ''
+      })
+      $('copy').addEventListener('click', async () => {
+        await navigator.clipboard.writeText('npm install tinylance').catch(() => {})
+        $('copied').textContent = 'copied'
+        setTimeout(() => ($('copied').textContent = 'copy'), 1500)
       })
       $('prev').addEventListener('click', () => run(() => showPage(Math.max(0, current.offset - PAGE))))
       $('next').addEventListener('click', () => run(() => showPage(current.offset + PAGE)))
