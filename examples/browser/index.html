@@ -548,6 +548,9 @@
       async function showPage(offset) {
         const { dataset, remote } = current
         const started = performance.now()
+
+        // count this page's requests, not everything since the dataset opened
+        requests = 0
         const rows = await lanceRead(dataset, { offset, limit: PAGE, maxInlineBytes: 1 << 20, signal: controller.signal })
         const ms = Math.round(performance.now() - started)
 

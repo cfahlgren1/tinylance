@@ -216,10 +216,37 @@ export function memo<T>(cache: Map<string, Promise<T>>, key: string, make: () =>
  * Adds a per-file tail cache and merges reads issued in the same tick into fewer requests:
  * ranges in the same file that overlap or sit within `gap` bytes of each other become one read.
  */
-export function cachedSource(source: Source, { tailSize = 64 * 1024, gap = 64 * 1024 } = {}): CachedSource {
+export function cachedSource(source: Source, { tailSize = 64 * 1024, gap = 64 * 1024, cacheBytes = 16 * 1024 * 1024 } = {}): CachedSource {
   const tails = new Map<string, Promise<{ start: number; bytes: Uint8Array }>>()
   const sizes = new Map<string, Promise<number>>()
+  // recently fetched ranges, least recently used first, so paging back and forth refetches nothing
+  const recent: { path: string; start: number; bytes: Uint8Array }[] = []
+  let recentBytes = 0
   let queue: Pending[] = []
+
+  function remember(path: string, start: number, bytes: Uint8Array): void {
+    if (bytes.byteLength > cacheBytes / 4) return
+
+    recent.push({ path, start, bytes })
+    recentBytes += bytes.byteLength
+
+    while (recentBytes > cacheBytes) recentBytes -= recent.shift()?.bytes.byteLength ?? 0
+  }
+
+  function recall(path: string, offset: number, length: number): Uint8Array | null {
+    for (let i = recent.length - 1; i >= 0; i--) {
+      const r = recent[i]
+
+      if (r.path !== path || offset < r.start || offset + length > r.start + r.bytes.byteLength) continue
+
+      // most recently used moves to the end
+      recent.push(...recent.splice(i, 1))
+
+      return r.bytes.subarray(offset - r.start, offset - r.start + length)
+    }
+
+    return null
+  }
 
   function flush(): void {
     const batch = queue
@@ -272,6 +299,8 @@ export function cachedSource(source: Source, { tailSize = 64 * 1024, gap = 64 * 
   function run(path: string, group: Pending[], start: number, end: number, signal: AbortSignal | undefined): void {
     source.read(path, start, end - start, signal).then(
       (b) => {
+        remember(path, start, b)
+
         for (const q of group) q.resolve(b.subarray(q.offset - start, q.offset - start + q.length))
       },
       (err: Error) => {
@@ -302,6 +331,10 @@ export function cachedSource(source: Source, { tailSize = 64 * 1024, gap = 64 * 
         return out
       }
     }
+
+    const hit = recall(path, offset, length)
+
+    if (hit) return hit
 
     return new Promise((resolve, reject) => {
       if (!queue.length) setTimeout(flush, 0)

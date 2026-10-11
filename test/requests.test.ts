@@ -160,3 +160,21 @@ test('external blobs are fetched through the fetch option: whole objects and ran
   assert.equal(range.byteLength, 3)
   assert.deepEqual(await range.read(), object.subarray(2, 5))
 })
+
+test('paging reuses bytes already fetched: going back costs no requests', async () => {
+  const { source, calls } = counted('nested-v2.1.lance')
+  const ds = await lanceOpen(source)
+
+  const page = async (offset: number): Promise<number> => {
+    const before = calls.length
+
+    assert.deepEqual(normalizeRows(await lanceRead(ds, { offset, limit: 10 })), expectedRows('nested').slice(offset, offset + 10))
+
+    return calls.length - before
+  }
+
+  await page(0)
+  await page(10)
+  assert.equal(await page(0), 0)
+  assert.equal(await page(10), 0)
+})

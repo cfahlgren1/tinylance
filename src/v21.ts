@@ -812,6 +812,9 @@ function concatU16(parts: Uint16Array[]): Uint16Array {
 
 type FullZipLayout = Extract<Layout, { kind: 'fullzip' }>
 
+/** rows of a full-zip repetition index read at once */
+const INDEX_BLOCK = 1024
+
 const controlBytes = (l: FullZipLayout): number => {
   const bits = l.bitsRep + l.bitsDef
 
@@ -833,8 +836,11 @@ async function readFullZip(page: PageRef, l: FullZipLayout, start: number, end: 
   } else {
     // repetition index: rows + 1 byte positions into the data buffer
     const bytesPer = repIdxLen / (page.rows + 1)
-    const [idx] = await io.readMany([[repIdxOff + start * bytesPer, (end - start + 1) * bytesPer]], ctx.signal)
-    const at = (i: number): number => readUint(idx, i * bytesPer, bytesPer)
+    // read the index in aligned blocks of rows, so neighbouring pages find it already fetched
+    const block = Math.floor(start / INDEX_BLOCK) * INDEX_BLOCK
+    const blockEnd = Math.min(page.rows, Math.ceil(end / INDEX_BLOCK) * INDEX_BLOCK)
+    const [idx] = await io.readMany([[repIdxOff + block * bytesPer, (blockEnd - block + 1) * bytesPer]], ctx.signal)
+    const at = (i: number): number => readUint(idx, (i + start - block) * bytesPer, bytesPer)
 
     from = at(0)
     to = at(end - start)
