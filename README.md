@@ -38,7 +38,7 @@ const rows = await lanceRead(dataset, { columns: ['image', 'label'], offset: 0, 
 // [{ image: Uint8Array, label: 5 }, ...]
 ```
 
-Or in one call: `await readRows(url, { limit: 20 })`. Datasets can be `hf://`, `https://`, `s3://` or `gs://` URLs, or a local path in Node. For private buckets, pass a source from `tinylance/buckets`.
+Or in one call: `await readRows(url, { limit: 20 })`. Datasets can be `hf://`, `https://`, `s3://` or `gs://` URLs, or a local path in Node. A huggingface.co link works too, even one to a file inside the dataset; `hfUri(link)` gives its `hf://` form. For private buckets, pass a source from `tinylance/buckets`.
 
 For a LanceDB database (a folder of tables):
 

@@ -20,7 +20,7 @@ export type Fetch = typeof globalThis.fetch
  * a bucket URI is opened, so apps that read from the Hub or plain HTTP never download it.
  */
 export async function fromUri(uri: string): Promise<Source> {
-  if (uri.startsWith('hf://')) return hfSource(uri)
+  if (uri.startsWith('hf://') || HUB_HOST.test(uri)) return hfSource(uri)
 
   if (/^https?:\/\//.test(uri)) return httpSource(uri)
 
@@ -120,15 +120,82 @@ interface HfTreeEntry {
   type: 'file' | 'directory'
 }
 
-/** A dataset on the Hugging Face Hub: `hf://datasets/owner/name[@revision]/path/to/table.lance`. */
+const HUB_HOST = /^https?:\/\/(?:www\.)?(?:huggingface\.co|hf\.co)(?:\/|$)/
+
+/** page links that put a revision after the repo, as in /tree/main/ or /blob/v1.0/ */
+const HUB_PAGES = new Set(['tree', 'blob', 'resolve', 'raw', 'edit', 'delete', 'commits'])
+
+interface HubLocation {
+  kind: string
+  repo: string
+  revision: string | undefined
+  dir: string
+}
+
+/**
+ * Parse an hf:// URI (`hf://datasets/owner/name[@revision]/path`) or a Hub link copied from the
+ * browser (`https://huggingface.co/datasets/owner/name/tree/main/path`). The path stops at its
+ * first `.lance` directory, so a link to a file inside a dataset opens the dataset.
+ */
+function parseHub(url: string): HubLocation {
+  const uri = /^hf:\/\/([^?#]*)/.exec(url)
+  const link = /^https?:\/\/[^/]+\/?([^?#]*)/.exec(url)
+
+  const parts = (uri?.[1] ?? link?.[1] ?? '')
+    .split('/')
+    .filter(Boolean)
+    .map((p) => (link ? decodePart(p, url) : p))
+
+  const kind = ['datasets', 'models', 'spaces'].find((k) => k === parts[0])
+
+  if (kind) parts.shift()
+
+  const owner = parts.shift()
+  let [name, revision] = (parts.shift() ?? '').split('@')
+
+  if ((!uri && !link) || !owner || !name) throw new Error(`not a Hugging Face Hub URL: ${url}`)
+
+  if (link && HUB_PAGES.has(parts[0] ?? '') && parts.length > 1) revision = parts.splice(0, 2)[1]
+
+  const table = parts.findIndex((p) => p.endsWith('.lance'))
+
+  return {
+    kind: kind ?? 'models', // like huggingface_hub, a repo without a kind is a model
+    repo: `${owner}/${name}`,
+    revision: revision === undefined ? undefined : decodePart(revision, url),
+    dir: (table < 0 ? parts : parts.slice(0, table + 1)).join('/'),
+  }
+}
+
+function decodePart(part: string, url: string): string {
+  try {
+    return decodeURIComponent(part)
+  } catch {
+    throw new Error(`not a Hugging Face Hub URL: ${url} (bad escape in "${part}")`)
+  }
+}
+
+/**
+ * The hf:// URI for a Hub location, e.g. a link copied from the browser:
+ * `https://huggingface.co/datasets/owner/name/blob/main/data/train.lance/data/0.lance` is
+ * `hf://datasets/owner/name/data/train.lance` (the revision is kept when it isn't main).
+ */
+export function hfUri(url: string): string {
+  const { kind, repo, revision, dir } = parseHub(url)
+  const at = revision && revision !== 'main' ? `@${encodeURIComponent(revision)}` : ''
+
+  return `hf://${kind}/${repo}${at}${dir ? `/${dir}` : ''}`
+}
+
+/**
+ * A dataset on the Hugging Face Hub: `hf://datasets/owner/name[@revision]/path/to/table.lance`, or
+ * a huggingface.co link to it (or to any file inside it), as copied from the browser.
+ */
 export function hfSource(url: string, options: HfSourceOptions = {}): Source {
-  const m = /^hf:\/\/(datasets|models|spaces)\/([^/]+\/[^/@]+)(?:@([^/]+))?\/?(.*)$/.exec(url)
-
-  if (!m) throw new Error(`not an hf:// URL: ${url}`)
-
-  const [, kind, repo, rev, dir] = m
+  const { kind, repo, revision: rev, dir } = parseHub(url)
   const revision = encodeURIComponent(rev ?? options.revision ?? 'main')
-  const endpoint = options.endpoint ?? 'https://huggingface.co'
+  // a link to another host (a Hub mirror) is served from that host
+  const endpoint = options.endpoint ?? (url.startsWith('hf://') || HUB_HOST.test(url) ? 'https://huggingface.co' : new URL(url).origin)
   const f = options.fetch ?? globalThis.fetch
   const headers: Record<string, string> = options.token ? { Authorization: `Bearer ${options.token}` } : {}
   const prefix = dir ? `${dir.replace(/\/$/, '')}/` : ''

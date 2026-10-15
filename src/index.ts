@@ -26,7 +26,7 @@ export type { LanceDataFile, LanceDataset, LanceField, LanceFragment, LanceOpenO
 
 export type { LanceReadOptions } from './read.ts'
 
-export { hfSource, httpSource } from './source.ts'
+export { hfSource, hfUri, httpSource } from './source.ts'
 
 export type { Fetch, HfSourceOptions, HttpSourceOptions, Source, SourceEntry } from './source.ts'
 

@@ -100,6 +100,15 @@ try {
   await tab.locator('#rows tr.link').first().click()
   await settled('LanceDB table')
 
+  // a huggingface.co link pasted from the browser, here to one data file inside the dataset
+  await home()
+  await tab
+    .locator('#url')
+    .fill('https://huggingface.co/datasets/lance-format/fineweb-edu/blob/main/data/train.lance/data/000000000001110101001001b13a4341249764c3d505e0524a.lance')
+  await tab.locator('#url').press('Enter')
+  await settled('pasted link')
+  assert.equal(await tab.locator('#url').inputValue(), 'hf://datasets/lance-format/fineweb-edu/data/train.lance')
+
   // local folders, read through the File API: a dataset, then a LanceDB database
   for (const folder of ['scalars-v2.1.lance', 'lancedb']) {
     await home()

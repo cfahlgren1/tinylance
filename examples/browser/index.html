@@ -393,7 +393,7 @@
       <form id="form">
         <button class="home" type="button" id="home">tiny<span>lance</span></button>
         <div class="bar">
-          <input id="url" placeholder="hf://datasets/owner/name/table.lance" aria-label="dataset URL" spellcheck="false" />
+          <input id="url" placeholder="hf://datasets/owner/name/table.lance or a huggingface.co link" aria-label="dataset URL" spellcheck="false" />
           <button type="submit">Open</button>
         </div>
       </form>
@@ -438,7 +438,7 @@
     </main>
 
     <script type="module">
-      import { hfSource, lanceOpen, lanceRead } from 'tinylance'
+      import { hfSource, hfUri, lanceOpen, lanceRead } from 'tinylance'
       import { lancedbConnect } from 'tinylance/lancedb'
 
       const $ = (id) => document.getElementById(id)
@@ -590,7 +590,9 @@
         document.body.dataset.state = 'ready'
       }
 
-      function openUrl(url, offset = 0) {
+      function openUrl(link, offset = 0) {
+        // accepts huggingface.co links too, including links to a file inside a dataset
+        const url = hfUri(link)
         const name = url.replace(/\/$/, '').split('/').pop()
         const source = hfSource(url, { fetch: countingFetch })
 
